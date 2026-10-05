@@ -1,0 +1,280 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+*{
+  font-family: "Inter", sans-serif;
+}
+.ant-menu{
+  background: transparent !important;
+}
+.ant-menu-item{
+  height: 50px !important;
+  line-height: 50px !important;
+  margin: 12px 5px !important;
+  border-radius: 16px !important;
+  background: transparent !important;
+  color: #ffffff !important;
+  font-size: 17px !important;
+  text-align: left;
+}
+.ant-menu-item:hover{
+  color: #d60d0d !important;
+}
+.ant-menu-item-selected {
+  color: #8b0000 !important;
+  background: #fff !important;
+}
+.company-search.ant-input-affix-wrapper {
+  width: 400px;
+  height: 44px;
+  border-radius: 25px;
+  padding: 0 15px;
+  border: 1px solid #d9d9d9;
+  transition: all 0.3s ease;
+}
+
+.company-search.ant-input-affix-wrapper:hover {
+  border-color: #8b0000;
+}
+
+.company-search.ant-input-affix-wrapper:focus,
+.company-search.ant-input-affix-wrapper-focused {
+  border-color: #8b0000 !important;
+  box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.15) !important;
+}
+
+.company-search .anticon {
+  color: #999;
+  transition: color 0.3s ease;
+}
+
+.company-search:focus-within .anticon {
+  color: #8b0000;
+}
+.company-search.ant-input-affix-wrapper-focused .anticon-search {
+  color: #8b0000 !important;
+}
+.branch-menu-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.branch-menu-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.branch-menu-scroll::-webkit-scrollbar-thumb {
+  background: #e30404;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.branch-menu-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b33434;
+}
+.branch-table .ant-table {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.branch-table .ant-table-thead > tr > th {
+  background: #8b0000 !important;
+  color: #1f1f1f;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 20px;
+  border-bottom: 1px solid #8b0000;
+  text-align: center;
+}
+
+.branch-table .ant-table-tbody > tr > td {
+  text-align: center;
+  padding: 20px;
+  font-size: 14px;
+  border-bottom: 1px solid #8b0000;
+}
+
+.branch-table .ant-table-tbody > tr:hover > td {
+  background: #8b0000 !important;
+}
+
+.branch-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+.branch-table .ant-table-content {
+  scrollbar-width: thin;
+  scrollbar-color: #ec7173 #f5f5f5;
+}
+
+.branch-table .ant-table-content::-webkit-scrollbar {
+  height: 5px !important;
+}
+
+.branch-table .ant-table-content::-webkit-scrollbar-track {
+  background: #8b0000 !important;
+  border-radius: 10px;
+}
+
+.branch-table .ant-table-content::-webkit-scrollbar-thumb {
+  background: #8b0000 !important;
+  border-radius: 10px;
+}
+
+.branch-table .ant-table-content::-webkit-scrollbar-thumb:hover {
+  background: #8b0000 !important;
+}
+
+.red-table .ant-table-thead > tr > th {
+  background: #8b0000 !important;
+  color: white !important;
+  font-weight: 600;
+  border-color: #8b0000 !important;
+}
+
+.red-table .ant-table-tbody > tr > td {
+  border-color: #ffd6d6 !important;
+}
+
+.red-table .ant-table-tbody > tr:hover > td {
+  background: #fff1f0 !important;
+}
+
+
+.red-table .ant-table-container {
+  border: 1px solid #ffccc7;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.red-table .ant-table-thead th.ant-table-column-sort {
+  background: #d9363e !important;
+}
+
+
+.red-table .ant-table-column-sorter {
+  color: white !important;
+}
+
+.red-table .ant-pagination .ant-pagination-prev .ant-pagination-item-link,
+.red-table .ant-pagination .ant-pagination-next .ant-pagination-item-link {
+  color: #8b0000 !important;
+  /* border-color: #ff4d4f !important; */
+  border-radius: 6px;
+}
+
+.red-table .ant-pagination .ant-pagination-prev:hover .ant-pagination-item-link,
+.red-table .ant-pagination .ant-pagination-next:hover .ant-pagination-item-link {
+  color: white !important;
+  background: #8b0000 !important;
+  border-color: #8b0000 !important;
+}
+.red-table .ant-pagination .ant-pagination-item-active {
+  border-color: #8b0000 !important;
+}
+.red-table .ant-pagination .ant-pagination-item-active a {
+  color: #8b0000 !important;
+}
+
+
+
+.red-table .ant-pagination .ant-pagination-item:hover {
+  border-color: #ff4d4f !important;
+  background: #fff !important; 
+}
+
+.red-table .ant-pagination .ant-pagination-item:hover a {
+  color: #ff4d4f !important;
+}
+
+.red-table .ant-table-body::-webkit-scrollbar,
+.red-table .ant-table-content::-webkit-scrollbar,
+.red-table .ant-table-header::-webkit-scrollbar {
+  height: 6px;  
+  width: 6px; 
+}
+
+.red-table .ant-table-body::-webkit-scrollbar-track,
+.red-table .ant-table-content::-webkit-scrollbar-track,
+.red-table .ant-table-header::-webkit-scrollbar-track {
+  background: #fff5f5;  
+  border-radius: 8px;
+}
+
+.red-table .ant-table-body::-webkit-scrollbar-thumb,
+.red-table .ant-table-content::-webkit-scrollbar-thumb,
+.red-table .ant-table-header::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #ff4b4b, #d946ef);
+  border-radius: 8px;
+}
+
+.red-table .ant-table-body::-webkit-scrollbar-thumb:hover,
+.red-table .ant-table-content::-webkit-scrollbar-thumb:hover,
+.red-table .ant-table-header::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #e60026, #b91c8c);
+}
+
+.red-table .ant-table-body,
+.red-table .ant-table-content,
+.red-table .ant-table-header {
+  scrollbar-width: thin;
+  scrollbar-color: #8b0000 #fff5f5;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker {
+  border-color: #d9d9d9 !important;  
+  border-radius: 10px;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover,
+.ant-picker:hover {
+  border-color: #8b0000 !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-picker-focused {
+  border-color: #8b0000 !important;
+  box-shadow: 0 0 0 3px rgba(255, 75, 79, 0.15) !important;
+}
+
+.ant-input-affix-wrapper:focus-within .anticon,
+.ant-input-affix-wrapper-focused .anticon {
+  color: #ff4b4f !important;
+}
+.ant-select:not(.ant-select-disabled) .ant-select-selector,
+.ant-picker:not(.ant-picker-disabled) {
+  border-color: #8b0000 !important; 
+  border-radius: 10px !important;
+}
+
+.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+.ant-picker:not(.ant-picker-disabled):hover {
+  border-color: #8b0000 !important;
+}
+
+.ant-select-focused:not(.ant-select-disabled) .ant-select-selector,
+.ant-picker-focused:not(.ant-picker-disabled) {
+  border-color: #8b0000 !important;
+  box-shadow: 0 0 0 3px rgba(255, 75, 79, 0.15) !important;
+}
+
+.ant-select-focused .ant-select-arrow,
+.ant-picker-focused .ant-picker-suffix {
+  color: #ff4b4f !important;
+}
+
+.ant-select-clear:hover,
+.ant-picker-clear:hover {
+  color: #ff4b4f !important;
+}
+
+.ant-form-item-label > label {
+  color: #8b0000 !important;
+}
