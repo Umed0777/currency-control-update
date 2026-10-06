@@ -206,8 +206,6 @@ const HomePage = () => {
       onClick: () => navigate("/trash"),
       visible: canViewTrash,
     },
-
-    // === С ЧИСЛАМИ ===
     {
       key: "reports",
       title: "Формирование отчетов",
@@ -222,7 +220,7 @@ const HomePage = () => {
       key: "control",
       title: "Документы на согласовании",
       desc: "Ожидают проверки ВК или Комплаенс",
-      value: notificationsTotal ?? 0,
+      value: true,
       icon: <SafetyCertificateOutlined />,
       color: "#fa8c16",
       onClick: canViewApprovalsPage

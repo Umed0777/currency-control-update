@@ -410,7 +410,7 @@ const ApprovalsPage = () => {
         <Tooltip title="Открыть">
           <Button
             type="text"
-            icon={<EyeOutlined style={{ color: "#e60026" }} />}
+            icon={<EyeOutlined style={{ color: "#8b0000" }} />}
             onClick={() => handleOpenDetail(record)}
           />
         </Tooltip>
@@ -508,7 +508,6 @@ const ApprovalsPage = () => {
 
   return (
     <div>
-      {/* Шапка */}
       <div
         style={{
           display: "flex",
@@ -530,7 +529,8 @@ const ApprovalsPage = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              ...redGradientBg,
+              // ...redGradientBg,
+              background: '#8b0000',
               boxShadow: "0 10px 24px rgba(230,0,38,0.28)",
               flexShrink: 0,
             }}
@@ -540,7 +540,7 @@ const ApprovalsPage = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, ...redGradientText }}
+              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
             >
               Согласования
             </Title>
@@ -565,7 +565,7 @@ const ApprovalsPage = () => {
               }
             }}
             loading={loading || permissionsLoading}
-            style={{ borderRadius: 12, height: 38 }}
+            style={{ borderRadius: 12, height: 35, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
           >
             Обновить
           </Button>
@@ -574,14 +574,12 @@ const ApprovalsPage = () => {
             danger
             icon={<ArrowLeftOutlined />}
             onClick={() => navigate(-1)}
-            style={{ borderRadius: 12, height: 38 }}
+            style={{ borderRadius: 12, height: 35 }}
           >
             Назад
           </Button>
         </Space>
       </div>
-
-      {/* === TAB 1: pending === */}
       {activeTab === "pending" && (
         <>
           <Card
@@ -596,7 +594,7 @@ const ApprovalsPage = () => {
             <Row gutter={[16, 16]}>
               <Col xs={24} md={12}>
                 <Text
-                  style={{ display: "block", marginBottom: 8, fontSize: 14 }}
+                  style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}
                 >
                   Этап согласования:
                 </Text>
@@ -606,7 +604,7 @@ const ApprovalsPage = () => {
                     setStageFilter(v);
                     setPage(1);
                   }}
-                  style={{ width: "100%", height: 40 }}
+                  style={{ width: "100%", height: 35, border: '1px solid #8b0000' }}
                   allowClear
                   placeholder="Все этапы"
                   options={[
@@ -620,7 +618,7 @@ const ApprovalsPage = () => {
 
               <Col xs={24} md={12}>
                 <Text
-                  style={{ display: "block", marginBottom: 8, fontSize: 14 }}
+                  style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}
                 >
                   Тип документа:
                 </Text>
@@ -630,7 +628,7 @@ const ApprovalsPage = () => {
                     setEntityTypeFilter(v);
                     setPage(1);
                   }}
-                  style={{ width: "100%", height: 40 }}
+                  style={{ width: "100%", height: 35, border: '1px solid #8b0000' }}
                   allowClear
                   placeholder="Все типы"
                   options={[
@@ -666,8 +664,8 @@ const ApprovalsPage = () => {
               }}
             >
               <Space size={10}>
-                <AuditOutlined style={{ color: "#e60026", fontSize: 16 }} />
-                <Text strong style={{ fontSize: 15 }}>
+                <AuditOutlined style={{ color: "#8b0000", fontSize: 16, }} />
+                <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
                   Ожидают согласования
                 </Text>
               </Space>
@@ -678,6 +676,7 @@ const ApprovalsPage = () => {
                   padding: "2px 12px",
                   fontWeight: 600,
                   fontSize: 13,
+                  color: '#8b0000',
                 }}
               >
                 Всего: {total}
@@ -711,11 +710,11 @@ const ApprovalsPage = () => {
                     pageSize: pageSize,
                     total: total,
                     showSizeChanger: false,
-                    showTotal: (t) => (
-                      <span style={{ color: "#e60026", fontWeight: 600 }}>
-                        Всего: {t}
-                      </span>
-                    ),
+                    // showTotal: (t) => (
+                    //   <span style={{ color: "#e60026", fontWeight: 600 }}>
+                    //     Всего: {t}
+                    //   </span>
+                    // ),
                     onChange: (p) => setPage(p),
                   }}
                   locale={{
@@ -832,13 +831,11 @@ const ApprovalsPage = () => {
           </div>
         </Card>
       )}
-
-      {/* ===== Модалка деталей ===== */}
       <Modal
         title={
           <Space size={10}>
-            <FileTextOutlined style={{ color: "#e60026", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, ...redGradientText }}>
+            <FileTextOutlined style={{ color: "#8b0000", fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: '#8b0000' }}>
               Детали документа
             </span>
           </Space>
@@ -853,7 +850,7 @@ const ApprovalsPage = () => {
               danger
               icon={<CheckOutlined />}
               onClick={() => handleOpenDecision("compliance")}
-              style={{ borderRadius: 10 }}
+              style={{ borderRadius: 10, }}
             >
               Решение комплаенс
             </Button>
@@ -865,7 +862,7 @@ const ApprovalsPage = () => {
               danger
               icon={<CheckOutlined />}
               onClick={() => handleOpenDecision("currency_control")}
-              style={{ borderRadius: 10 }}
+              style={{ borderRadius: 10, background: '#8b0000' }}
             >
               Решение Валютного контроля
             </Button>
@@ -998,15 +995,13 @@ const ApprovalsPage = () => {
           </>
         )}
       </Modal>
-
-      {/* ===== Модалка решения ===== */}
       <Modal
         title={
           <Space size={10}>
             <ExclamationCircleOutlined
               style={{ color: "#e60026", fontSize: 18 }}
             />
-            <span style={{ fontWeight: 700, ...redGradientText }}>
+            <span style={{ fontWeight: 700, color: '#8b0000' }}>
               {decisionType === "compliance"
                 ? "Решение комплаенс-контроля"
                 : "Решение валютного контроля"}
@@ -1016,10 +1011,8 @@ const ApprovalsPage = () => {
         open={isDecisionOpen}
         onCancel={() => setIsDecisionOpen(false)}
         footer={[
-          <Button key="cancel" danger onClick={() => setIsDecisionOpen(false)}>
-            Отмена
-          </Button>,
-          <Button
+           <Button
+           style={{background: '#8b0000'}}
             key="submit"
             type="primary"
             danger
@@ -1028,6 +1021,9 @@ const ApprovalsPage = () => {
             onClick={handleSubmitDecision}
           >
             Сохранить
+          </Button>,
+          <Button key="cancel" danger onClick={() => setIsDecisionOpen(false)}>
+            Отмена
           </Button>,
         ]}
         width={600}
@@ -1040,6 +1036,7 @@ const ApprovalsPage = () => {
             rules={[{ required: true, message: "Выберите решение" }]}
           >
             <Select
+            style={{border: '1px solid #8b0000'}}
               placeholder="Выберите решение"
               options={
                 decisionType === "compliance"
@@ -1069,8 +1066,6 @@ const ApprovalsPage = () => {
           </Form.Item>
         </Form>
       </Modal>
-
-      {/* ===== Модалка выдачи прав ===== */}
       <Modal
         title={
           <Space size={10}>

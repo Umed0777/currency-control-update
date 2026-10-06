@@ -337,7 +337,7 @@ const Trash = () => {
           <Tooltip title="Просмотреть детали">
             <Button
               type="text"
-              icon={<EyeOutlined style={{ color: "#8b5cf6" }} />}
+              icon={<EyeOutlined style={{ color: "#8b0000" }} />}
               onClick={() => handleOpenDetail(record)}
             />
           </Tooltip>
@@ -345,7 +345,7 @@ const Trash = () => {
           <Tooltip title="Открыть/скачать файл">
             <Button
               type="text"
-              icon={<DownloadOutlined style={{ color: "#1677ff" }} />}
+              icon={<DownloadOutlined style={{ color: "#8b0000" }} />}
               onClick={() => handleOpenFile(record)}
             />
           </Tooltip>
@@ -354,7 +354,7 @@ const Trash = () => {
             <Button
               type="text"
               loading={restoring === record.id}
-              icon={<RollbackOutlined style={{ color: "#52c41a" }} />}
+              icon={<RollbackOutlined style={{ color: "#8b0000" }} />}
               onClick={() => handleRestore(record)}
             />
           </Tooltip>
@@ -396,7 +396,6 @@ const Trash = () => {
 
   return (
     <div>
-      {/* ===== ШАПКА ===== */}
       <div
         style={{
           display: "flex",
@@ -418,8 +417,9 @@ const Trash = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background:
-                "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
+              // background:
+              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
+              background: '#8b0000',
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -429,7 +429,7 @@ const Trash = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, ...gradientText }}
+              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
             >
               Журнал удаление
             </Title>
@@ -441,7 +441,7 @@ const Trash = () => {
 
         <Space>
           <Badge
-            count={total}
+            // count={total}
             showZero
             overflowCount={9999}
             style={{ backgroundColor: "#ff4b4b" }}
@@ -450,13 +450,11 @@ const Trash = () => {
             danger
               icon={<ReloadOutlined />}
               onClick={() => fetchTrash()}
-              style={{ borderRadius: 12, height: 35 }}
+              style={{ borderRadius: 12, height: 35, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
             >
               Обновить
             </Button>
           </Badge>
-
-          {/* ==== Кнопка Назад ==== */}
           <Button
             danger
             icon={<ArrowLeftOutlined />}
@@ -468,7 +466,6 @@ const Trash = () => {
         </Space>
       </div>
 
-      {/* ===== ФИЛЬТРЫ ===== */}
       <Card
         style={{
           marginBottom: 20,
@@ -479,15 +476,15 @@ const Trash = () => {
         bodyStyle={{ padding: 20 }}
       >
         <Space align="center" size={10} style={{ marginBottom: 16 }}>
-          <FilterOutlined style={{ color: "#d946ef", fontSize: 16 }} />
-          <Text strong style={{ fontSize: 15 }}>
+          <FilterOutlined style={{ color: "#8b0000", fontSize: 16, }} />
+          <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
             Фильтры
           </Text>
         </Space>
 
         <Row gutter={[16, 16]} align="bottom">
           <Col xs={24} md={6} lg={6}>
-            <Text style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
+            <Text style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}>
               Тип документа
             </Text>
             <Select
@@ -498,12 +495,12 @@ const Trash = () => {
                 fetchTrash({ ...filters, entity_type: v, page: 1 });
               }}
               options={ENTITY_TYPES}
-              style={{ width: "100%", height: 40 }}
+              style={{ width: "100%", height: 35, border: '1px solid #8b0000' }}
             />
           </Col>
 
           <Col xs={24} md={12} lg={13}>
-            <Text style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
+            <Text style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}>
               Поиск по номеру или клиенту
             </Text>
             <Input
@@ -512,7 +509,7 @@ const Trash = () => {
               placeholder="Введите номер документа или клиента"
               allowClear
               onPressEnter={handleSearch}
-              style={{ borderRadius: 10, height: 40 }}
+              style={{ borderRadius: 10, height: 35 }}
             />
           </Col>
 
@@ -528,8 +525,9 @@ const Trash = () => {
                   flex: 1,
                   minWidth: 0,
                   borderRadius: 10,
-                  height: 36,
-                  background: "linear-gradient(90deg, #ff4b4b, #d946ef)",
+                  height: 35,
+                  // background: "linear-gradient(90deg, #ff4b4b, #d946ef)",
+                  background: '#8b0000',
                   border: "none",
                   boxShadow: "0 6px 16px rgba(217,70,239,0.28)",
                   fontWeight: 600,
@@ -544,7 +542,7 @@ const Trash = () => {
                   flex: 1,
                   minWidth: 0,
                   borderRadius: 10,
-                  height: 36,
+                  height: 35,
                 }}
               >
                 Сбросить
@@ -553,8 +551,6 @@ const Trash = () => {
           </Col>
         </Row>
       </Card>
-
-      {/* ===== ТАБЛИЦА ===== */}
       <Card
         style={{
           borderRadius: 18,
@@ -576,8 +572,8 @@ const Trash = () => {
           }}
         >
           <Space size={10}>
-            <DeleteOutlined style={{ color: "#e60026", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15 }}>
+            <DeleteOutlined style={{ color: "#8b0000", fontSize: 16 }} />
+            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
               Удалённые документы
             </Text>
           </Space>
@@ -588,6 +584,7 @@ const Trash = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
+              color: '#8b0000',
             }}
           >
             Всего: {total}
@@ -608,6 +605,7 @@ const Trash = () => {
             </div>
           ) : (
             <Table
+            className="red-table"
               rowKey={(r) => `${r.entity_type}-${r.id}`}
               loading={loading}
               columns={columns}
@@ -618,11 +616,11 @@ const Trash = () => {
                 pageSize: pageSize,
                 total: total,
                 showSizeChanger: false,
-                showTotal: (t) => (
-                  <span style={{ color: "#ff4d4f", fontWeight: 600 }}>
-                    Всего: {t}
-                  </span>
-                ),
+                // showTotal: (t) => (
+                //   <span style={{ color: "#ff4d4f", fontWeight: 600 }}>
+                //     Всего: {t}
+                //   </span>
+                // ),
                 onChange: (p) => {
                   setFilter("page", p);
                   fetchTrash({ ...filters, page: p });
