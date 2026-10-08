@@ -54,9 +54,10 @@ const Login = () => {
               margin: 0,
               fontSize: 30,
               fontWeight: 700,
-              background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
+              // background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
+              // WebkitBackgroundClip: "text",
+              // WebkitTextFillColor: "transparent",
+              color: "#8b0000",
             }}
           >
             Вход в систему
@@ -113,7 +114,8 @@ const Login = () => {
                   height: 46,
                   borderRadius: 8,
                   border: "none",
-                  background: "linear-gradient(90deg, #ff416c, #ff4b2b)",
+                  // background: "linear-gradient(90deg, #ff416c, #ff4b2b)",
+                  background: '#8b0000',
                   fontWeight: 600,
                 }}
               >

@@ -35,28 +35,21 @@ import {
   HistoryOutlined,
   InboxOutlined,
   DollarOutlined,
-  NumberOutlined,
   CalendarOutlined,
   GlobalOutlined,
   FileDoneOutlined,
-  // FileAddOutlined,
   CreditCardOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
 import { useParams, useNavigate } from "react-router-dom";
 import { useInvoiceStore } from "../store/useInvoiceStore";
 import { useAuthStore } from "../store/useAuth";
-import { searchCurrencies } from "../api/dictionary.service";
+import { searchCurrencies, searchCountries } from "../api/dictionary.service";
 import DocumentLink from "../pages/DocumentLink";
 
 const { Title, Text } = Typography;
-
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
 
 const CAN_CREATE_EDIT = ["admin", "compliance", "currency_control", "operator"];
 const CAN_EDIT = ["admin", "compliance", "currency_control"];
@@ -68,6 +61,38 @@ const APPROVAL_STATUS_MAP = {
   approved: { label: "Одобрено", color: "green" },
   rejected: { label: "Отклонено", color: "red" },
 };
+
+// ==================== ХЕЛПЕРЫ ДЛЯ ОПЦИЙ ====================
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value?.results && Array.isArray(value.results)) return value.results;
+  if (value?.data && Array.isArray(value.data)) return value.data;
+  return [];
+};
+
+const buildCurrencyOptions = (currencies) =>
+  toArray(currencies).map((c, index) => {
+    const code = c?.code || c?.iso_code || c?.currency_code || c?.id || "";
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(code || index),
+      label: `${code}${name ? ` — ${name}` : ""}`.trim(),
+    };
+  });
+
+const buildCountryOptions = (countries) =>
+  toArray(countries).map((c, index) => {
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(name || c?.id || index),
+      label: String(name || c?.id || index),
+    };
+  });
+
+const filterByLabel = (input, option) =>
+  String(option?.label || "")
+    .toLowerCase()
+    .includes(String(input || "").toLowerCase());
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -105,12 +130,7 @@ const formatMoney = (value, currency) => {
 };
 
 export const InvoicesUpdate = () => {
-  const {
-    id: branchId,
-    companyId,
-    contractId,
-    agreementId,
-  } = useParams();
+  const { id: branchId, companyId, contractId, agreementId } = useParams();
   const navigate = useNavigate();
 
   const {
@@ -133,13 +153,30 @@ export const InvoicesUpdate = () => {
   const [editingInvoice, setEditingInvoice] = useState(null);
 
   const [currencies, setCurrencies] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+  const [loadingCountries, setLoadingCountries] = useState(false);
 
   const normalizedRole = String(role || "").toLowerCase();
   const canCreateEdit = CAN_CREATE_EDIT.includes(normalizedRole);
   const canEdit = CAN_EDIT.includes(normalizedRole);
   const canDelete = CAN_DELETE.includes(normalizedRole);
+
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
+
+  // ✅ ФИЛЬТР: показываем ТОЛЬКО инвойсы контракта (без доп. соглашений)
+  const contractInvoices = agreementId
+    ? safeInvoices
+    : safeInvoices.filter(
+        (inv) =>
+          !inv.agreement_id &&
+          !inv.agreementId &&
+          !inv.additional_agreement_id &&
+          !inv.additional_agreement,
+      );
+
+  const currencyOptions = buildCurrencyOptions(currencies);
+  const countryOptions = buildCountryOptions(countries);
 
   useEffect(() => {
     if (branchId && companyId && contractId) {
@@ -154,41 +191,47 @@ export const InvoicesUpdate = () => {
     }
   }, [error, clearError]);
 
-  // Загрузка валют
   useEffect(() => {
-    const fetchCurrencies = async () => {
+    const fetchInitialData = async () => {
       setLoadingCurrencies(true);
       try {
         const data = await searchCurrencies("");
-        setCurrencies(data);
+        setCurrencies(toArray(data));
       } catch (err) {
+        console.error("Ошибка загрузки валют:", err);
         message.error("Не удалось загрузить список валют");
       } finally {
         setLoadingCurrencies(false);
       }
+
+      setLoadingCountries(true);
+      try {
+        const data = await searchCountries("");
+        setCountries(toArray(data));
+      } catch (err) {
+        console.error("Ошибка загрузки стран:", err);
+      } finally {
+        setLoadingCountries(false);
+      }
     };
-    fetchCurrencies();
+    fetchInitialData();
   }, []);
 
   const getAuthor = (record) => {
     const creator = record?.creator || null;
-
     const rawLastName =
       creator?.last_name ||
       record?.last_name ||
       (record?.created_by === user?.login ? user?.last_name : null);
-
     const rawFirstName =
       creator?.first_name ||
       record?.first_name ||
       (record?.created_by === user?.login ? user?.first_name : null);
-
     const login =
       creator?.login ||
       record?.login ||
       record?.created_by ||
       (record?.created_by === user?.login ? user?.login : null);
-
     const email =
       creator?.email ||
       record?.email ||
@@ -201,7 +244,6 @@ export const InvoicesUpdate = () => {
     return { fullName, login, email };
   };
 
-  // Открытие модалки создания
   const openCreateModal = () => {
     setEditingInvoice(null);
     form.resetFields();
@@ -212,8 +254,18 @@ export const InvoicesUpdate = () => {
   const openEditModal = (record) => {
     setEditingInvoice(record);
     form.setFieldsValue({
-      ...record,
+      invoice_number: record.invoice_number || "",
       invoice_date: record.invoice_date ? dayjs(record.invoice_date) : null,
+      amount:
+        record.amount !== undefined && record.amount !== null
+          ? String(record.amount)
+          : "",
+      currency: record.currency || "USD",
+      hs_code: record.hs_code || "",
+      // ✅ Поля отправителя
+      sender_name: record.sender_name || "",
+      sender_bank: record.sender_bank || "",
+      sender_country: record.sender_country || "",
       document: [],
     });
     setIsModalOpen(true);
@@ -235,15 +287,23 @@ export const InvoicesUpdate = () => {
 
       formData.append(
         "invoice_number",
-        String(values.invoice_number || "").trim()
+        String(values.invoice_number || "").trim(),
       );
       formData.append(
         "invoice_date",
-        dayjs(values.invoice_date).format("YYYY-MM-DD")
+        dayjs(values.invoice_date).format("YYYY-MM-DD"),
       );
       formData.append("amount", String(Number(values.amount)));
       formData.append("currency", String(values.currency || ""));
       formData.append("hs_code", String(values.hs_code || "").trim());
+
+      // ✅ Поля отправителя
+      formData.append("sender_name", String(values.sender_name || "").trim());
+      formData.append("sender_bank", String(values.sender_bank || "").trim());
+      formData.append(
+        "sender_country",
+        String(values.sender_country || "").trim(),
+      );
 
       const fileObj = values?.document?.[0]?.originFileObj;
       if (fileObj) {
@@ -257,16 +317,16 @@ export const InvoicesUpdate = () => {
           contractId,
           editingInvoice.id,
           formData,
-          agreementId
+          agreementId,
         );
-        message.success("Инвойс успешно обновлен");
+        message.success("Инвойс успешно обновлён");
       } else {
         await createInvoice(
           branchId,
           companyId,
           contractId,
           formData,
-          agreementId
+          agreementId,
         );
         message.success("Инвойс успешно создан");
       }
@@ -274,12 +334,11 @@ export const InvoicesUpdate = () => {
       setIsModalOpen(false);
       form.resetFields();
       setEditingInvoice(null);
+
+      fetchInvoices(branchId, companyId, contractId, agreementId);
     } catch (err) {
       console.error("Ошибка сохранения:", err);
-      console.error("Ответ сервера:", err?.response?.data);
-
       const data = err?.response?.data;
-
       const serverMsg =
         (typeof data?.error === "string" && data.error) ||
         (typeof data?.detail === "string" && data.detail) ||
@@ -292,14 +351,13 @@ export const InvoicesUpdate = () => {
         serverMsg ||
           (editingInvoice
             ? "Не удалось обновить инвойс"
-            : "Не удалось создать инвойс")
+            : "Не удалось создать инвойс"),
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Удаление
   const handleDelete = async (e, invoiceId) => {
     e?.stopPropagation?.();
     try {
@@ -308,35 +366,25 @@ export const InvoicesUpdate = () => {
         companyId,
         contractId,
         invoiceId,
-        agreementId
+        agreementId,
       );
-      message.success("Инвойс удален в корзину");
-    } catch (err) {
+      message.success("Инвойс удалён в корзину");
+    } catch {
       message.error("Не удалось удалить инвойс");
     }
   };
 
-  // const handleRowClick = (record) => {
-  //   navigate(
-  //     `/branches/${branchId}/companies/${companyId}/contracts/${record.id}/invoices`
-  //   );
-  // };
-
   const handleOpenGtd = (record) => {
     navigate(
-      `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${record.id}/gtd`
+      `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${record.id}/gtd`,
     );
   };
-const handleOpenPaymentOrders = (record) => {
-  navigate(
-    `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${record.id}/payment-orders`
-  );
-};
-  // const handleOpenAdditionalAgreements = () => {
-  //   navigate(
-  //     `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/additional-agreements`
-  //   );
-  // };
+
+  const handleOpenPaymentOrders = (record) => {
+    navigate(
+      `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${record.id}/payment-orders`,
+    );
+  };
 
   const columns = [
     {
@@ -389,6 +437,48 @@ const handleOpenPaymentOrders = (record) => {
       ),
     },
     {
+      title: "Отправитель",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            {/* <SendOutlined style={{ color: "#8b0000", fontSize: 12 }} /> */}
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Банк отправителя",
+      dataIndex: "sender_bank",
+      key: "sender_bank",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <BankOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Страна отправителя",
+      dataIndex: "sender_country",
+      key: "sender_country",
+      width: 240,
+      render: (v) => (
+        <Space size={6}>
+          <GlobalOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+          <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+        </Space>
+      ),
+    },
+    {
       title: "Статус",
       dataIndex: "approval_status",
       key: "approval_status",
@@ -414,11 +504,7 @@ const handleOpenPaymentOrders = (record) => {
       key: "document_path",
       width: 320,
       render: (v, record) => (
-        <DocumentLink
-          entityType="invoice"
-          entityId={record.id}
-          filePath={v}
-        />
+        <DocumentLink entityType="invoice" entityId={record.id} filePath={v} />
       ),
     },
     {
@@ -485,84 +571,76 @@ const handleOpenPaymentOrders = (record) => {
 
     ...(canDelete || canEdit
       ? [
-         {
-  title: "Действие",
-  key: "actions",
-  width: 220,
-  align: "right",
-  render: (_, record) => (
-    <Space size={4}>
-      <Tooltip title="ГТД">
-        <Button
-          type="text"
-          icon={<FileDoneOutlined style={{ color: "#8b0000" }} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenGtd(record);
-          }}
-        />
-      </Tooltip>
-      {/* <Tooltip title="Дополнительные соглашения">
-        <Button
-          type="text"
-          icon={<FileAddOutlined style={{ color: "#d946ef" }} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenAdditionalAgreements();
-          }}
-        />
-      </Tooltip> */}
-      <Tooltip title="Платёжные поручения">
-        <Button
-          type="text"
-          icon={<CreditCardOutlined style={{ color: "#8b0000" }} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenPaymentOrders(record);
-          }}
-        />
-      </Tooltip>
+          {
+            title: "Действие",
+            key: "actions",
+            width: 220,
+            align: "right",
+            render: (_, record) => (
+              <Space size={4}>
+                <Tooltip title="ГТД">
+                  <Button
+                    type="text"
+                    icon={<FileDoneOutlined style={{ color: "#8b0000" }} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenGtd(record);
+                    }}
+                  />
+                </Tooltip>
 
-      {canEdit && (
-        <Tooltip title="Редактировать">
-          <Button
-            type="text"
-            icon={<EditOutlined style={{ color: "#8b0000" }} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditModal(record);
-            }}
-          />
-        </Tooltip>
-      )}
-      {canDelete && (
-        <Popconfirm
-          title="Удалить инвойс?"
-          description="Инвойс будет перемещен в корзину."
-          okText="Удалить"
-          cancelText="Отмена"
-          okButtonProps={{ danger: true }}
-          onConfirm={(e) => handleDelete(e, record.id)}
-          onCancel={(e) => e?.stopPropagation?.()}
-        >
-          <Tooltip title="Удалить">
-            <Button
-              type="text"
-              icon={<DeleteOutlined style={{ color: "#e60026" }} />}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </Tooltip>
-        </Popconfirm>
-      )}
-    </Space>
-  ),
-}
+                <Tooltip title="Платёжные поручения">
+                  <Button
+                    type="text"
+                    icon={<CreditCardOutlined style={{ color: "#8b0000" }} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPaymentOrders(record);
+                    }}
+                  />
+                </Tooltip>
+
+                {canEdit && (
+                  <Tooltip title="Редактировать">
+                    <Button
+                      type="text"
+                      icon={<EditOutlined style={{ color: "#8b0000" }} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditModal(record);
+                      }}
+                    />
+                  </Tooltip>
+                )}
+                {canDelete && (
+                  <Popconfirm
+                    title="Удалить инвойс?"
+                    description="Инвойс будет перемещён в корзину."
+                    okText="Удалить"
+                    cancelText="Отмена"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={(e) => handleDelete(e, record.id)}
+                    onCancel={(e) => e?.stopPropagation?.()}
+                  >
+                    <Tooltip title="Удалить">
+                      <Button
+                        type="text"
+                        icon={<DeleteOutlined style={{ color: "#e60026" }} />}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Tooltip>
+                  </Popconfirm>
+                )}
+              </Space>
+            ),
+          },
         ]
       : []),
   ];
 
   return (
     <div>
+      {/* ===== Заголовок ===== */}
       <div
         style={{
           display: "flex",
@@ -584,9 +662,7 @@ const handleOpenPaymentOrders = (record) => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -596,11 +672,9 @@ const handleOpenPaymentOrders = (record) => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000', }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
-              {agreementId
-                ? "Инвойсы доп. соглашения"
-                : "Инвойсы контракта"}
+              {agreementId ? "Инвойсы доп. соглашения" : "Инвойсы контракта"}
             </Title>
             <Space size={10} style={{ marginTop: 4 }}>
               <Text type="secondary" style={{ fontSize: 13 }}>
@@ -649,9 +723,7 @@ const handleOpenPaymentOrders = (record) => {
               style={{
                 borderRadius: 12,
                 height: 35,
-                // background:
-                //   "linear-gradient(90deg, #ff4b4b 0%, #d946ef 100%)",
-                background: '#8b0000',
+                background: "#8b0000",
                 border: "none",
                 boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
                 fontWeight: 600,
@@ -669,6 +741,7 @@ const handleOpenPaymentOrders = (record) => {
           </Button>
         </Space>
       </div>
+
       <Card
         style={{
           borderRadius: 18,
@@ -691,7 +764,7 @@ const handleOpenPaymentOrders = (record) => {
         >
           <Space size={10}>
             <BankOutlined style={{ color: "#e60026", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Список инвойсов
             </Text>
           </Space>
@@ -702,15 +775,15 @@ const handleOpenPaymentOrders = (record) => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: "#8b0000",
             }}
           >
-            Всего: {safeInvoices.length}
+            Всего: {contractInvoices.length}
           </Tag>
         </div>
 
         <div style={{ padding: 20 }}>
-          {isLoading && safeInvoices.length === 0 ? (
+          {isLoading && contractInvoices.length === 0 ? (
             <div
               style={{
                 minHeight: 300,
@@ -724,30 +797,14 @@ const handleOpenPaymentOrders = (record) => {
           ) : (
             <Table
               className="red-table"
-              // onRow={(record) => ({
-              //   onClick: () => handleRowClick(record),
-              //   style: { cursor: "pointer" },
-              // })}
               rowKey={(r) => String(r.id ?? Math.random())}
               loading={isLoading}
               columns={columns}
-              dataSource={safeInvoices}
+              dataSource={contractInvoices}
               scroll={{ x: "max-content" }}
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
-                // showTotal: (total) => (
-                //   <span
-                //     style={{
-                //       color: "#ff4d4f",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего инвойсов: {total}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               locale={{
@@ -765,10 +822,11 @@ const handleOpenPaymentOrders = (record) => {
         </div>
       </Card>
 
+      {/* ===== Модалка инвойса ===== */}
       <Modal
         title={
           <Space>
-            <span style={{ fontWeight: 700, color: '#8b0000', fontSize: 17 }}>
+            <span style={{ fontWeight: 700, color: "#8b0000", fontSize: 17 }}>
               {editingInvoice ? "Редактировать инвойс" : "Создать новый инвойс"}
             </span>
           </Space>
@@ -789,7 +847,7 @@ const handleOpenPaymentOrders = (record) => {
         destroyOnClose
         forceRender
         width={800}
-        style={{ top: 80 }}
+        style={{ top: 60 }}
         styles={{ body: { maxHeight: "calc(100vh - 160px)" } }}
         footer={[
           <Button
@@ -826,10 +884,11 @@ const handleOpenPaymentOrders = (record) => {
         ]}
       >
         <Form form={form} layout="vertical" autoComplete="off">
+          {/* ===== Основная информация ===== */}
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Основная информация
               </Text>
             </Space>
@@ -845,7 +904,6 @@ const handleOpenPaymentOrders = (record) => {
                 <Input
                   placeholder="Введите номер инвойса"
                   style={{ borderRadius: 10 }}
-                  // prefix={<NumberOutlined style={{ color: "#8b5cf6" }} />}
                 />
               </Form.Item>
             </Col>
@@ -863,6 +921,14 @@ const handleOpenPaymentOrders = (record) => {
               </Form.Item>
             </Col>
           </Row>
+
+          {/* ===== Финансы ===== */}
+          <Divider orientation="left">
+            <Space>
+              <DollarOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>Финансы</Text>
+            </Space>
+          </Divider>
 
           <Row gutter={16}>
             <Col span={12}>
@@ -892,13 +958,17 @@ const handleOpenPaymentOrders = (record) => {
                 <Select
                   showSearch
                   placeholder="Выберите валюту"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
                   loading={loadingCurrencies}
-                  optionFilterProp="label"
-                  options={currencies.map((c) => ({
-                    value: c.code,
-                    label: `${c.code} - ${c.name_ru}`,
-                  }))}
+                  filterOption={filterByLabel}
+                  options={currencyOptions}
+                  notFoundContent={
+                    loadingCurrencies ? (
+                      <Spin size="small" style={{ color: "#f00" }} />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
                 />
               </Form.Item>
             </Col>
@@ -906,11 +976,7 @@ const handleOpenPaymentOrders = (record) => {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
-                label="Код ТН ВЭД (HS CODE)"
-                name="hs_code"
-                rules={[{ required: true, message: "Введите код ТН ВЭД" }]}
-              >
+              <Form.Item label="Код ТН ВЭД (HS CODE)" name="hs_code">
                 <Input
                   placeholder="Введите код ТН ВЭД"
                   style={{ borderRadius: 10 }}
@@ -920,17 +986,79 @@ const handleOpenPaymentOrders = (record) => {
             </Col>
           </Row>
 
+          {/* ===== ✅ Отправитель ===== */}
           <Divider orientation="left">
             <Space>
-              <FileDoneOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
-                Документ
-              </Text>
+              <SendOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>Отправитель</Text>
             </Space>
           </Divider>
 
           <Row gutter={16}>
-            <Col span={10}>
+            <Col span={12}>
+              <Form.Item
+                label="Название отправителя"
+                name="sender_name"
+                rules={[{ required: true, message: "Введите название" }]}
+              >
+                <Input
+                  placeholder="Введите название отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<SendOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Банк отправителя"
+                name="sender_bank"
+                rules={[{ required: true, message: "Введите банк" }]}
+              >
+                <Input
+                  placeholder="Введите банк отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<BankOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Страна отправителя"
+                name="sender_country"
+                rules={[{ required: true, message: "Выберите страну" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Выберите страну отправителя"
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
+                  loading={loadingCountries}
+                  filterOption={filterByLabel}
+                  options={countryOptions}
+                  notFoundContent={
+                    loadingCountries ? (
+                      <Spin size="small" style={{ color: "#f00" }} />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* ===== Документ ===== */}
+          <Divider orientation="left">
+            <Space>
+              <FileDoneOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>Документ</Text>
+            </Space>
+          </Divider>
+
+          <Row gutter={16}>
+            <Col span={12}>
               <Form.Item
                 label={
                   editingInvoice
@@ -939,9 +1067,7 @@ const handleOpenPaymentOrders = (record) => {
                 }
                 name="document"
                 valuePropName="fileList"
-                getValueFromEvent={(e) =>
-                  Array.isArray(e) ? e : e?.fileList
-                }
+                getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
                 rules={
                   editingInvoice
                     ? []

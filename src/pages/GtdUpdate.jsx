@@ -18,10 +18,10 @@ import {
   Popconfirm,
   Select,
   DatePicker,
-  InputNumber,
   Upload,
   Divider,
   Avatar,
+  InputNumber,
 } from "antd";
 
 import {
@@ -39,9 +39,9 @@ import {
   GlobalOutlined,
   HistoryOutlined,
   InboxOutlined,
-  NumberOutlined,
   FieldTimeOutlined,
   RiseOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -53,11 +53,7 @@ import DocumentLink from "./DocumentLink";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
+const RED = "#8b0000";
 
 const CAN_CREATE_EDIT = ["admin", "compliance", "currency_control", "operator"];
 const CAN_EDIT = ["admin", "compliance", "currency_control"];
@@ -82,6 +78,38 @@ const DOCUMENT_TYPE_MAP = {
   gtd: { label: "ГТД", color: "purple" },
   act: { label: "Акт", color: "blue" },
 };
+
+// ==================== ХЕЛПЕРЫ ====================
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value?.results && Array.isArray(value.results)) return value.results;
+  if (value?.data && Array.isArray(value.data)) return value.data;
+  return [];
+};
+
+const buildCurrencyOptions = (currencies) =>
+  toArray(currencies).map((c, index) => {
+    const code = c?.code || c?.iso_code || c?.currency_code || c?.id || "";
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(code || index),
+      label: `${code}${name ? ` — ${name}` : ""}`.trim(),
+    };
+  });
+
+const buildCountryOptions = (countries) =>
+  toArray(countries).map((c, index) => {
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(name || c?.id || index),
+      label: String(name || c?.id || index),
+    };
+  });
+
+const filterByLabel = (input, option) =>
+  String(option?.label || "")
+    .toLowerCase()
+    .includes(String(input || "").toLowerCase());
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -168,9 +196,11 @@ export const GtdUpdate = () => {
   const safeGtd = Array.isArray(gtdList) ? gtdList : [];
   const safeHistory = Array.isArray(extensionHistory) ? extensionHistory : [];
 
+  const currencyOptions = buildCurrencyOptions(currencies);
+  const countryOptions = buildCountryOptions(countries);
+
   useEffect(() => {
     if (!branchId || !companyId || !contractId) return;
-
     if (invoiceId) {
       fetchGtdByInvoice(branchId, companyId, contractId, invoiceId);
     } else {
@@ -190,7 +220,7 @@ export const GtdUpdate = () => {
       setLoadingCurrencies(true);
       try {
         const data = await searchCurrencies("");
-        setCurrencies(data);
+        setCurrencies(toArray(data));
       } catch {
         message.error("Не удалось загрузить список валют");
       } finally {
@@ -200,7 +230,7 @@ export const GtdUpdate = () => {
       setLoadingCountries(true);
       try {
         const data = await searchCountries("");
-        setCountries(data);
+        setCountries(toArray(data));
       } catch (err) {
         console.error("Ошибка загрузки стран:", err);
       } finally {
@@ -212,32 +242,26 @@ export const GtdUpdate = () => {
 
   const getAuthor = (record) => {
     const creator = record?.creator || null;
-
     const rawLastName =
       creator?.last_name ||
       record?.last_name ||
       (record?.created_by === user?.login ? user?.last_name : null);
-
     const rawFirstName =
       creator?.first_name ||
       record?.first_name ||
       (record?.created_by === user?.login ? user?.first_name : null);
-
     const login =
       creator?.login ||
       record?.login ||
       record?.created_by ||
       (record?.created_by === user?.login ? user?.login : null);
-
     const email =
       creator?.email ||
       record?.email ||
       (record?.created_by === user?.login ? user?.email : null);
-
     const surname = rawFirstName || "";
     const name = rawLastName || "";
     const fullName = [surname, name].filter(Boolean).join(" ").trim();
-
     return { fullName, login, email };
   };
 
@@ -268,12 +292,14 @@ export const GtdUpdate = () => {
         record.gtd_amount !== undefined && record.gtd_amount !== null
           ? String(record.gtd_amount)
           : "",
+      sender_name: record.sender_name || "",
+      sender_bank: record.sender_bank || "",
+      sender_country: record.sender_country || "",
       document: [],
     });
     setIsModalOpen(true);
   };
 
-  // ==== ПРОДЛЕНИЕ ====
   const openExtendModal = (record) => {
     if (!invoiceId) {
       message.warning("Продление доступно только со страницы инвойса");
@@ -297,26 +323,22 @@ export const GtdUpdate = () => {
       message.warning("Продление доступно только со страницы инвойса");
       return;
     }
-
     let values;
     try {
       values = await extendForm.validateFields();
     } catch {
       return;
     }
-
     const file = values.document?.[0]?.originFileObj;
     if (!file) {
       message.error("Прикрепите PDF документ-обоснование");
       return;
     }
-
     const requestedDeadline = values.requested_deadline?.format("YYYY-MM-DD");
     if (!requestedDeadline) {
       message.error("Выберите новую дату срока");
       return;
     }
-
     try {
       await extendGtd({
         branchId,
@@ -331,18 +353,16 @@ export const GtdUpdate = () => {
       setIsExtendOpen(false);
       setExtendingGtd(null);
       extendForm.resetFields();
-
       fetchGtdByInvoice(branchId, companyId, contractId, invoiceId);
     } catch (e) {
       message.error(
         e?.response?.data?.error ||
           e?.response?.data?.message ||
-          "Не удалось подать заявку"
+          "Не удалось подать заявку",
       );
     }
   };
 
-  // ==== ИСТОРИЯ ====
   const openHistoryModal = async (record) => {
     if (!invoiceId) {
       message.warning("История доступна только со страницы инвойса");
@@ -367,14 +387,12 @@ export const GtdUpdate = () => {
 
   const handleSubmit = async () => {
     if (submitting) return;
-
     let values;
     try {
       values = await form.validateFields();
     } catch {
       return;
     }
-
     setSubmitting(true);
     try {
       const payload = {
@@ -388,6 +406,9 @@ export const GtdUpdate = () => {
         destination_country: values.destination_country || "",
         document_type: values.document_type || "gtd",
         invoice_id: invoiceId || values.invoice_id || null,
+        sender_name: values.sender_name?.trim() || "",
+        sender_bank: values.sender_bank?.trim() || "",
+        sender_country: values.sender_country || "",
         document: values.document?.[0]?.originFileObj || null,
       };
 
@@ -397,17 +418,11 @@ export const GtdUpdate = () => {
           companyId,
           contractId,
           editingGtd.id,
-          payload
+          payload,
         );
         message.success("ГТД успешно обновлён");
       } else {
-        await createGtd(
-          branchId,
-          companyId,
-          contractId,
-          invoiceId,
-          payload
-        );
+        await createGtd(branchId, companyId, contractId, invoiceId, payload);
         message.success("ГТД успешно создан");
       }
 
@@ -429,9 +444,7 @@ export const GtdUpdate = () => {
         null;
       message.error(
         backendMsg ||
-          (editingGtd
-            ? "Не удалось обновить ГТД"
-            : "Не удалось создать ГТД")
+          (editingGtd ? "Не удалось обновить ГТД" : "Не удалось создать ГТД"),
       );
     } finally {
       setSubmitting(false);
@@ -449,9 +462,8 @@ export const GtdUpdate = () => {
   };
 
   // ============================================================
-  //  КОЛОНКИ
+  //  КОЛОНКИ ТАБЛИЦЫ ГТД
   // ============================================================
-
   const columns = [
     {
       title: "Номер ГТД",
@@ -487,7 +499,7 @@ export const GtdUpdate = () => {
       width: 130,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -514,7 +526,7 @@ export const GtdUpdate = () => {
           style={{
             borderRadius: 8,
             fontWeight: 700,
-            background: "#8b5cf6",
+            background: RED,
             color: "#fff",
             border: "none",
             padding: "2px 10px",
@@ -543,7 +555,49 @@ export const GtdUpdate = () => {
       width: 240,
       render: (v) => (
         <Space size={6}>
-          <GlobalOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <GlobalOutlined style={{ color: RED, fontSize: 12 }} />
+          <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Отправитель",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <SendOutlined style={{ color: RED, fontSize: 12 }} />
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Банк отправителя",
+      dataIndex: "sender_bank",
+      key: "sender_bank",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <BankOutlined style={{ color: RED, fontSize: 12 }} />
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Страна отправителя",
+      dataIndex: "sender_country",
+      key: "sender_country",
+      width: 180,
+      render: (v) => (
+        <Space size={6}>
+          <GlobalOutlined style={{ color: RED, fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
         </Space>
       ),
@@ -575,7 +629,7 @@ export const GtdUpdate = () => {
       width: 140,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -584,7 +638,7 @@ export const GtdUpdate = () => {
       title: "Документ",
       dataIndex: "document_path",
       key: "document_path",
-      width: 260,
+      width: 340,
       render: (v, record) => (
         <DocumentLink entityType="gtd" entityId={record.id} filePath={v} />
       ),
@@ -593,7 +647,7 @@ export const GtdUpdate = () => {
       title: "Создал",
       dataIndex: "created_by",
       key: "created_by",
-      width: 220,
+      width: 280,
       render: (v, record) => {
         const { fullName, login, email } = getAuthor(record);
         if (!fullName && !login && !email) {
@@ -604,11 +658,13 @@ export const GtdUpdate = () => {
             <Avatar
               size={20}
               style={{
-                background: "#8b0000",
+                background: RED,
                 fontSize: 10,
               }}
             >
-              {String(v || "?").charAt(0).toUpperCase()}
+              {String(v || "?")
+                .charAt(0)
+                .toUpperCase()}
             </Avatar>
             <Text style={{ fontSize: 12 }}>
               {fullName && <Text strong>{fullName}</Text>}
@@ -642,7 +698,7 @@ export const GtdUpdate = () => {
       width: 150,
       render: (v) => (
         <Space size={4}>
-          <ClockCircleOutlined style={{ color: "#8b5cf6", fontSize: 11 }} />
+          <ClockCircleOutlined style={{ color: RED, fontSize: 11 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatDateTime(v)}
           </Text>
@@ -666,7 +722,7 @@ export const GtdUpdate = () => {
     {
       title: "Действие",
       key: "actions",
-      width: 180,
+      width: 200,
       align: "right",
       render: (_, record) => (
         <Space size={4}>
@@ -698,7 +754,7 @@ export const GtdUpdate = () => {
             <Tooltip title="Редактировать">
               <Button
                 type="text"
-                icon={<EditOutlined style={{ color: "#8b0000" }} />}
+                icon={<EditOutlined style={{ color: RED }} />}
                 onClick={(e) => {
                   e.stopPropagation();
                   openEditModal(record);
@@ -731,6 +787,9 @@ export const GtdUpdate = () => {
     },
   ];
 
+  // ============================================================
+  //  КОЛОНКИ ИСТОРИИ ПРОДЛЕНИЙ
+  // ============================================================
   const historyColumns = [
     {
       title: "Текущий дедлайн",
@@ -739,7 +798,7 @@ export const GtdUpdate = () => {
       width: 150,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -801,9 +860,7 @@ export const GtdUpdate = () => {
         const login = record.creator?.login || record.created_by;
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 12, fontWeight: 600 }}>
-              {name || "—"}
-            </Text>
+            <Text style={{ fontSize: 12, fontWeight: 600 }}>{name || "—"}</Text>
             <Text style={{ fontSize: 11, color: "#d9363e" }}>
               {login || ""}
             </Text>
@@ -818,7 +875,7 @@ export const GtdUpdate = () => {
       width: 170,
       render: (v) => (
         <Space size={4}>
-          <ClockCircleOutlined style={{ color: "#8b5cf6", fontSize: 11 }} />
+          <ClockCircleOutlined style={{ color: RED, fontSize: 11 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatDateTime(v)}
           </Text>
@@ -833,14 +890,10 @@ export const GtdUpdate = () => {
       render: (_, record) => {
         const name = getPersonName(record.reviewer);
         const login = record.reviewer?.login || record.reviewed_by;
-        if (!name && !login) {
-          return <Text type="secondary">—</Text>;
-        }
+        if (!name && !login) return <Text type="secondary">—</Text>;
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 12, fontWeight: 600 }}>
-              {name || "—"}
-            </Text>
+            <Text style={{ fontSize: 12, fontWeight: 600 }}>{name || "—"}</Text>
             <Text style={{ fontSize: 11, color: "#d9363e" }}>
               {login || ""}
             </Text>
@@ -855,7 +908,7 @@ export const GtdUpdate = () => {
       width: 170,
       render: (v) => (
         <Space size={4}>
-          <ClockCircleOutlined style={{ color: "#d946ef", fontSize: 11 }} />
+          <ClockCircleOutlined style={{ color: "#8b0000", fontSize: 11 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatDateTime(v)}
           </Text>
@@ -877,6 +930,7 @@ export const GtdUpdate = () => {
 
   return (
     <div>
+      {/* ===== ЗАГОЛОВОК ===== */}
       <div
         style={{
           display: "flex",
@@ -898,9 +952,7 @@ export const GtdUpdate = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: RED,
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -908,10 +960,7 @@ export const GtdUpdate = () => {
             <FileTextOutlined style={{ fontSize: 16, color: "#fff" }} />
           </div>
           <div>
-            <Title
-              level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000'}}
-            >
+            <Title level={3} style={{ margin: 0, fontWeight: 700, color: RED }}>
               ГТД
             </Title>
             <Space size={10} style={{ marginTop: 4 }}>
@@ -925,7 +974,7 @@ export const GtdUpdate = () => {
                   padding: "1px 10px",
                   fontWeight: 600,
                   margin: 0,
-                  color: '#8b0000',
+                  color: RED,
                 }}
               >
                 {branchId}
@@ -944,11 +993,9 @@ export const GtdUpdate = () => {
               style={{
                 borderRadius: 12,
                 height: 35,
-                // background:
-                //   "linear-gradient(90deg, #ff4b4b 0%, #d946ef 100%)",
-                background: '#8b0000',
+                background: RED,
                 border: "none",
-                boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
+                boxShadow: "0 6px 16px rgba(139,0,0,0.35)",
                 fontWeight: 600,
               }}
             >
@@ -964,6 +1011,8 @@ export const GtdUpdate = () => {
           </Button>
         </Space>
       </div>
+
+      {/* ===== КАРТОЧКА ===== */}
       <Card
         style={{
           borderRadius: 18,
@@ -985,8 +1034,8 @@ export const GtdUpdate = () => {
           }}
         >
           <Space size={10}>
-            <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <BankOutlined style={{ color: RED, fontSize: 16 }} />
+            <Text strong style={{ fontSize: 15, color: RED }}>
               Список ГТД
             </Text>
           </Space>
@@ -997,7 +1046,7 @@ export const GtdUpdate = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: RED,
             }}
           >
             Всего: {safeGtd.length}
@@ -1027,18 +1076,6 @@ export const GtdUpdate = () => {
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
-                // showTotal: (total) => (
-                //   <span
-                //     style={{
-                //       color: "#ff4d4f",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего ГТД: {total}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               locale={{
@@ -1055,9 +1092,11 @@ export const GtdUpdate = () => {
           )}
         </div>
       </Card>
+
+      {/* ===== МОДАЛКА ГТД ===== */}
       <Modal
         title={
-          <span style={{ fontWeight: 700, color: '#8b0000', fontSize: 17 }}>
+          <span style={{ fontWeight: 700, color: RED, fontSize: 17 }}>
             {editingGtd ? "Редактировать ГТД" : "Создать ГТД"}
           </span>
         }
@@ -1077,7 +1116,7 @@ export const GtdUpdate = () => {
         destroyOnClose
         forceRender
         width={900}
-        style={{ top: 80 }}
+        style={{ top: 60 }}
         styles={{ body: { maxHeight: "calc(100vh - 160px)" } }}
         footer={[
           <Button
@@ -1090,9 +1129,9 @@ export const GtdUpdate = () => {
             style={{
               borderRadius: 10,
               height: 35,
-              background: "#8b0000",
+              background: RED,
               border: "none",
-              boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
+              boxShadow: "0 6px 16px rgba(139,0,0,0.35)",
               fontWeight: 600,
             }}
           >
@@ -1116,8 +1155,8 @@ export const GtdUpdate = () => {
         <Form form={form} layout="vertical" autoComplete="off">
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
-              <FileTextOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <FileTextOutlined style={{ color: RED }} />
+              <Text strong style={{ color: RED }}>
                 Основная информация
               </Text>
             </Space>
@@ -1133,7 +1172,6 @@ export const GtdUpdate = () => {
                 <Input
                   placeholder="Введите номер ГТД"
                   style={{ borderRadius: 10 }}
-                  // prefix={<NumberOutlined style={{ color: "#8b5cf6" }} />}
                 />
               </Form.Item>
             </Col>
@@ -1167,7 +1205,7 @@ export const GtdUpdate = () => {
                     `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
                   }
                   parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
-                  prefix={<DollarOutlined style={{ color: "#8b0000" }} />}
+                  prefix={<DollarOutlined style={{ color: RED }} />}
                 />
               </Form.Item>
             </Col>
@@ -1180,13 +1218,17 @@ export const GtdUpdate = () => {
                 <Select
                   showSearch
                   placeholder="Выберите валюту"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10 }}
                   loading={loadingCurrencies}
-                  optionFilterProp="label"
-                  options={currencies.map((c) => ({
-                    value: c.code,
-                    label: `${c.code} - ${c.name_ru}`,
-                  }))}
+                  filterOption={filterByLabel}
+                  options={currencyOptions}
+                  notFoundContent={
+                    loadingCurrencies ? (
+                      <Spin size="small" />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
                 />
               </Form.Item>
             </Col>
@@ -1194,15 +1236,11 @@ export const GtdUpdate = () => {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
-                label="Код ТН ВЭД (HS CODE)"
-                name="hs_code"
-                rules={[{ required: true, message: "Введите код ТН ВЭД" }]}
-              >
+              <Form.Item label="Код ТН ВЭД (HS CODE)" name="hs_code">
                 <Input
                   placeholder="Введите код ТН ВЭД"
                   style={{ borderRadius: 10 }}
-                  prefix={<GlobalOutlined style={{ color: "#8b0000" }} />}
+                  prefix={<GlobalOutlined style={{ color: RED }} />}
                 />
               </Form.Item>
             </Col>
@@ -1215,14 +1253,10 @@ export const GtdUpdate = () => {
                 <Select
                   showSearch
                   placeholder="Выберите страну"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10 }}
                   loading={loadingCountries}
-                  filterOption={false}
-                  optionFilterProp="label"
-                  options={countries.map((c) => ({
-                    value: c.name_ru || c.name,
-                    label: c.name_ru || c.name,
-                  }))}
+                  filterOption={filterByLabel}
+                  options={countryOptions}
                   notFoundContent={
                     loadingCountries ? (
                       <Spin size="small" />
@@ -1243,7 +1277,7 @@ export const GtdUpdate = () => {
                 rules={[{ required: true, message: "Выберите тип" }]}
               >
                 <Select
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10 }}
                   options={[
                     { value: "gtd", label: "ГТД" },
                     { value: "act", label: "Акт" },
@@ -1255,8 +1289,72 @@ export const GtdUpdate = () => {
 
           <Divider orientation="left">
             <Space>
-              <FileDoneOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <SendOutlined style={{ color: RED }} />
+              <Text strong style={{ color: RED }}>
+                Отправитель
+              </Text>
+            </Space>
+          </Divider>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Название отправителя"
+                name="sender_name"
+                rules={[{ required: true, message: "Введите название" }]}
+              >
+                <Input
+                  placeholder="Введите название отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<SendOutlined style={{ color: RED }} />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Банк отправителя"
+                name="sender_bank"
+                rules={[{ required: true, message: "Введите банк" }]}
+              >
+                <Input
+                  placeholder="Введите банк отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<BankOutlined style={{ color: RED }} />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Страна отправителя"
+                name="sender_country"
+                rules={[{ required: true, message: "Выберите страну" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Выберите страну отправителя"
+                  style={{ borderRadius: 10 }}
+                  loading={loadingCountries}
+                  filterOption={filterByLabel}
+                  options={countryOptions}
+                  notFoundContent={
+                    loadingCountries ? (
+                      <Spin size="small" />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider orientation="left">
+            <Space>
+              <FileDoneOutlined style={{ color: RED }} />
+              <Text strong style={{ color: RED }}>
                 Документ
               </Text>
             </Space>
@@ -1272,9 +1370,7 @@ export const GtdUpdate = () => {
                 }
                 name="document"
                 valuePropName="fileList"
-                getValueFromEvent={(e) =>
-                  Array.isArray(e) ? e : e?.fileList
-                }
+                getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
                 rules={
                   editingGtd
                     ? []
@@ -1285,9 +1381,7 @@ export const GtdUpdate = () => {
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       Текущий файл:{" "}
                       <Text code style={{ fontSize: 11 }}>
-                        {String(editingGtd.document_path)
-                          .split(/[\\/]/)
-                          .pop()}
+                        {String(editingGtd.document_path).split(/[\\/]/).pop()}
                       </Text>
                     </Text>
                   ) : null
@@ -1300,13 +1394,11 @@ export const GtdUpdate = () => {
                   style={{
                     borderRadius: 12,
                     background: "#fafafa",
-                    borderColor: "#8b0000",
+                    borderColor: RED,
                   }}
                 >
                   <p className="ant-upload-drag-icon">
-                    <InboxOutlined
-                      style={{ color: "#8b0000", fontSize: 36 }}
-                    />
+                    <InboxOutlined style={{ color: RED, fontSize: 36 }} />
                   </p>
                   <p
                     className="ant-upload-text"
@@ -1327,172 +1419,107 @@ export const GtdUpdate = () => {
         </Form>
       </Modal>
 
-      {/* ===== МОДАЛКА ПРОДЛЕНИЯ СРОКА ===== */}
+      {/* ===== МОДАЛКА ПРОДЛЕНИЯ ===== */}
       <Modal
         title={
           <Space size={10}>
-            <FieldTimeOutlined style={{ color: "#fa8c16", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, ...gradientText }}>
-              Продление срока ГТД
-            </span>
-          </Space>
-        }
-        open={isExtendOpen}
-        onCancel={() => {
-          if (!extensionSubmitting) {
-            setIsExtendOpen(false);
-            setExtendingGtd(null);
-          }
-        }}
-        afterClose={() => {
-          extendForm.resetFields();
-          setExtendingGtd(null);
-        }}
-        maskClosable={false}
-        keyboard={false}
-        destroyOnClose
-        forceRender
-        width={620}
-        style={{ top: 60 }}
-        footer={[
-          <Button
-            key="submit"
-            type="primary"
-            icon={<CheckOutlined />}
-            loading={extensionSubmitting}
-            onClick={handleExtendSubmit}
-            style={{
-              borderRadius: 10,
-              height: 38,
-              background: "linear-gradient(90deg, #fa8c16, #fa541c)",
-              border: "none",
-              fontWeight: 600,
-            }}
-          >
-            Отправить заявку
-          </Button>,
-          <Button
-            key="cancel"
-            danger
-            icon={<CloseOutlined />}
-            disabled={extensionSubmitting}
-            onClick={() => {
-              setIsExtendOpen(false);
-              setExtendingGtd(null);
-            }}
-            style={{ borderRadius: 10, height: 38 }}
-          >
-            Отмена
-          </Button>,
-        ]}
-      >
-        <div
-          style={{
-            background: "linear-gradient(135deg, #fff7e6 0%, #ffffff 100%)",
-            borderRadius: 14,
-            padding: "12px 16px",
-            border: "1px solid #ffd591",
-            marginBottom: 16,
-          }}
-        >
-          <Space size={10} align="start">
-            <FieldTimeOutlined
-              style={{ color: "#fa8c16", fontSize: 16, marginTop: 2 }}
-            />
-            <div>
-              <Text strong style={{ fontSize: 13.5, display: "block" }}>
-                Заявка на увеличение срока ГТД
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12.5 }}>
-                Выберите новую дату дедлайна и приложите подтверждающий
-                документ (PDF). Заявка отправится на рассмотрение в Валютный
-                контроль.
-              </Text>
-            </div>
-          </Space>
-        </div>
-
-        {extendingGtd && (
-          <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              ГТД:{" "}
-              <Text strong style={{ fontFamily: "monospace" }}>
-                {extendingGtd.gtd_number || `ID ${extendingGtd.id}`}
-              </Text>
-            </Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Текущий срок поставки:{" "}
-              <Text strong>
-                {formatDateShort(extendingGtd.delivery_deadline)}
-              </Text>
-            </Text>
-          </Space>
-        )}
-
-        <Form form={extendForm} layout="vertical" autoComplete="off">
-          <Form.Item
-            label="Новая дата срока ГТД"
-            name="requested_deadline"
-            rules={[{ required: true, message: "Выберите новую дату" }]}
-          >
-            <DatePicker
-              style={{ width: "100%", borderRadius: 10, height: 40 }}
-              placeholder="Выберите дату"
-              format="DD.MM.YYYY"
-              disabledDate={(d) => d && d.isBefore(dayjs().startOf("day"))}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Документ-обоснование (PDF)"
-            name="document"
-            valuePropName="fileList"
-            getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
-            rules={[{ required: true, message: "Прикрепите PDF" }]}
-          >
-            <Upload.Dragger
-              beforeUpload={() => false}
-              maxCount={1}
-              accept=".pdf"
-              style={{
-                borderRadius: 12,
-                background: "#fafafa",
-                borderColor: "#fa8c16",
-              }}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined style={{ color: "#fa8c16", fontSize: 36 }} />
-              </p>
-              <p
-                className="ant-upload-text"
-                style={{ fontSize: 14, fontWeight: 600 }}
-              >
-                Нажмите или перетащите PDF
-              </p>
-              <p
-                className="ant-upload-hint"
-                style={{ fontSize: 12, color: "#999" }}
-              >
-                Только PDF
-              </p>
-            </Upload.Dragger>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* ===== МОДАЛКА ИСТОРИИ ПРОДЛЕНИЙ ===== */}
-      <Modal
-        title={
-          <Space size={10}>
-            <HistoryOutlined style={{ color: "#13c2c2", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, ...gradientText }}>
+            <HistoryOutlined style={{ color: "#8b0000", fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: "#8b0000", fontSize: 17 }}>
               История продлений срока
             </span>
             {historyGtd?.gtd_number && (
               <Tag
                 style={{
                   borderRadius: 8,
-                  background: "#13c2c2",
+                  background: "#8b0000",
+                  color: "#fff",
+                  border: "none",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                  padding: "2px 12px",
+                }}
+              >
+                {historyGtd.gtd_number}
+              </Tag>
+            )}
+          </Space>
+        }
+        open={isHistoryOpen}
+        onCancel={closeHistoryModal}
+        footer={[
+          <Button
+            key="close"
+            danger
+            icon={<CloseOutlined />}
+            onClick={closeHistoryModal}
+            style={{
+              borderRadius: 10,
+              height: 35,
+              fontWeight: 600,
+              paddingLeft: 20,
+              paddingRight: 20,
+            }}
+          >
+            Закрыть
+          </Button>,
+        ]}
+        width={1300}
+        style={{ top: 40 }}
+        styles={{ body: { maxHeight: "72vh", overflowY: "auto" } }}
+        destroyOnClose
+        maskClosable
+        keyboard
+      >
+        {extensionHistoryLoading ? (
+          <div style={{ textAlign: "center", padding: "60px 0" }}>
+            <Spin size="middle" />
+          </div>
+        ) : safeHistory.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <span style={{ color: "#999" }}>
+                Заявок на продление пока нет
+              </span>
+            }
+            style={{ padding: "40px 0" }}
+          />
+        ) : (
+          <Table
+          className="red-table"
+            rowKey={(r) => String(r.id ?? Math.random())}
+            columns={historyColumns}
+            dataSource={safeHistory}
+            pagination={{
+              pageSize: 8,
+              showSizeChanger: false,
+              style: { marginTop: 16 },
+            }}
+            size="middle"
+            rowClassName={(_, index) =>
+              index % 2 === 0 ? "even-row" : "odd-row"
+            }
+            style={{
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* ===== МОДАЛКА ИСТОРИИ ===== */}
+      <Modal
+        title={
+          <Space size={10}>
+            <HistoryOutlined style={{ color: RED, fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: RED }}>
+              История продлений срока
+            </span>
+            {historyGtd?.gtd_number && (
+              <Tag
+                style={{
+                  borderRadius: 8,
+                  background: RED,
                   color: "#fff",
                   border: "none",
                   fontFamily: "monospace",

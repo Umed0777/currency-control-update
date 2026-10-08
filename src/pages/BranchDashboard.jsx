@@ -746,7 +746,7 @@ const BranchDashboard = () => {
       title: "Создал",
       dataIndex: "created_by",
       key: "created_by",
-      width: 340,
+      width: 420,
       render: (v, record) => {
         const { fullName, login, email } = getAuthor(record);
         if (!fullName && !login && !email) {

@@ -3,6 +3,7 @@ import {
   fetchGtdList,
   fetchGtdById,
   fetchGtdByInvoice,
+  fetchGtdByAgreement, // ✅ новая функция
   createGtd,
   updateGtd,
   deleteGtd,
@@ -24,7 +25,6 @@ export const useGtdStore = create((set) => ({
   isLoading: false,
   error: null,
 
-  // ==== Продление срока ====
   extensionHistory: [],
   extensionHistoryLoading: false,
   extensionSubmitting: false,
@@ -66,6 +66,34 @@ export const useGtdStore = create((set) => ({
           err?.response?.data?.message ||
           err?.message ||
           "Не удалось загрузить ГТД инвойса",
+      });
+    }
+  },
+
+  // ===== GET LIST (по доп. соглашению) =====
+  fetchGtdByAgreement: async (
+    branchId,
+    companyId,
+    contractId,
+    agreementId
+  ) => {
+    set({ isLoading: true, error: null });
+    try {
+      const data = await fetchGtdByAgreement(
+        branchId,
+        companyId,
+        contractId,
+        agreementId
+      );
+      set({ gtdList: toArray(data), isLoading: false });
+    } catch (err) {
+      set({
+        isLoading: false,
+        error:
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Не удалось загрузить ГТД доп. соглашения",
       });
     }
   },
@@ -139,10 +167,6 @@ export const useGtdStore = create((set) => ({
         gtdList: state.gtdList.map((item) =>
           item.id === gtdId ? { ...item, ...updated } : item
         ),
-        currentGtd:
-          state.currentGtd?.id === gtdId
-            ? { ...state.currentGtd, ...updated }
-            : state.currentGtd,
         isLoading: false,
       }));
       return updated;
@@ -181,7 +205,7 @@ export const useGtdStore = create((set) => ({
     }
   },
 
-  // ===== ПРОДЛЕНИЕ СРОКА ГТД =====
+  // ===== ПРОДЛЕНИЕ =====
   extendGtd: async ({
     branchId,
     companyId,

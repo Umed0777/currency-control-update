@@ -1,14 +1,5 @@
 import { useEffect, useMemo } from "react";
-import {
-  Card,
-  Typography,
-  Space,
-  Tag,
-  Row,
-  Col,
-  Tooltip,
-  message,
-} from "antd";
+import { Card, Typography, Space, Tag, Row, Col, Tooltip, message } from "antd";
 
 import {
   SafetyCertificateOutlined,
@@ -32,16 +23,16 @@ import { useReportsStore } from "../store/useReportsStore";
 
 const { Title, Text, Paragraph } = Typography;
 
-const redGradientBg = {
-  background: "linear-gradient(135deg, #ff4b4b 0%, #e60026 100%)",
-};
+// const redGradientBg = {
+//   background: "linear-gradient(135deg, #ff4b4b 0%, #e60026 100%)",
+// };
 
 const HomePage = () => {
   const navigate = useNavigate();
 
   const { user, role, session } = useAuthStore();
   const {
-    notificationsTotal,
+    // notificationsTotal,
     fetchDashboard,
     fetchNotifications,
   } = useBranchDashboardStore();
@@ -60,6 +51,7 @@ const HomePage = () => {
     normalizedRole === "admin" || normalizedRole === "compliance";
 
   const canViewApprovals =
+    normalizedRole === "admin" ||
     normalizedRole === "compliance" ||
     normalizedRole === "currency_control";
 
@@ -110,7 +102,6 @@ const HomePage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId]);
-
 
   useEffect(() => {
     if (canViewReports && !typesLoaded) {
@@ -169,20 +160,20 @@ const HomePage = () => {
       visible: isAdminOrCompliance,
     },
     {
-      key: "history",
-      title: "История запросов",
-      desc: "Обработанные заявки на доступ",
-      icon: <HistoryOutlined />,
-      onClick: () => navigate("/access-requests/history"),
-      visible: isAdminOrCompliance,
-    },
-    {
       key: "audit",
       title: "Журнал аудита",
       desc: "История действий пользователей",
       icon: <FileSearchOutlined />,
       onClick: () => navigate("/audit-logs"),
       visible: canViewAuditLogs,
+    },
+    {
+      key: "history",
+      title: "История запросов",
+      desc: "Обработанные заявки на доступ",
+      icon: <HistoryOutlined />,
+      onClick: () => navigate("/access-requests/history"),
+      visible: isAdminOrCompliance,
     },
     {
       key: "archive",
@@ -223,9 +214,7 @@ const HomePage = () => {
       value: true,
       icon: <SafetyCertificateOutlined />,
       color: "#fa8c16",
-      onClick: canViewApprovalsPage
-        ? () => navigate("/approvals")
-        : undefined,
+      onClick: canViewApprovalsPage ? () => navigate("/approvals") : undefined,
       visible: canViewApprovals,
     },
   ].filter((a) => a.visible);
@@ -252,7 +241,7 @@ const HomePage = () => {
         <div
           style={{
             // ...redGradientBg,
-            background: '#8b0000',
+            background: "#8b0000",
             padding: "48px 40px",
             position: "relative",
             overflow: "hidden",
@@ -308,7 +297,7 @@ const HomePage = () => {
                 }}
               >
                 <SafetyCertificateOutlined
-                  style={{ fontSize: 26, color: "#fff", }}
+                  style={{ fontSize: 26, color: "#fff" }}
                 />
               </div>
               <Tag
@@ -340,8 +329,7 @@ const HomePage = () => {
               }}
             >
               Добро пожаловать
-              <br />
-              в Валютный контроль
+              <br />в Валютный контроль
             </Title>
 
             <Paragraph
@@ -358,8 +346,8 @@ const HomePage = () => {
                   Здравствуйте, <strong>{fullName}</strong>!{" "}
                 </>
               ) : null}
-              Единая система управления компаниями, контрактами, инвойсами,
-              ГТД и дополнительными соглашениями. Контролируйте сроки,
+              Единая система управления компаниями, контрактами, инвойсами, ГТД
+              и дополнительными соглашениями. Контролируйте сроки,
               согласовывайте документы и управляйте доступами в одном месте.
             </Paragraph>
           </div>
@@ -375,7 +363,10 @@ const HomePage = () => {
       >
         <Space size={10} style={{ marginBottom: 20 }}>
           <CheckCircleOutlined style={{ color: "#8b0000", fontSize: 18 }} />
-          <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}>
+          <Title
+            level={4}
+            style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
+          >
             Быстрые действия
           </Title>
         </Space>
@@ -410,7 +401,7 @@ const HomePage = () => {
                         alignItems: "center",
                         justifyContent: "center",
                         // ...redGradientBg,
-                        background: '#8b0000',
+                        background: "#8b0000",
                         color: "#fff",
                         fontSize: 18,
                       }}

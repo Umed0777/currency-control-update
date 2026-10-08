@@ -7,20 +7,27 @@ import {
   deletePaymentOrder as apiDeletePaymentOrder,
 } from "../api/paymentOrder.service";
 
-export const usePaymentOrderStore = create((set, get) => ({
+export const usePaymentOrderStore = create((set) => ({
   paymentOrders: [],
   isLoading: false,
   error: null,
 
-  // ==== Список ====
-  fetchPaymentOrders: async (branchId, companyId, contractId, invoiceId) => {
+  // ==== Список (с опциональным agreementId) ====
+  fetchPaymentOrders: async (
+    branchId,
+    companyId,
+    contractId,
+    invoiceId,
+    agreementId = null
+  ) => {
     set({ isLoading: true, error: null });
     try {
       const data = await fetchPaymentOrders(
         branchId,
         companyId,
         contractId,
-        invoiceId
+        invoiceId,
+        agreementId
       );
       set({
         paymentOrders: Array.isArray(data) ? data : [],
@@ -42,7 +49,8 @@ export const usePaymentOrderStore = create((set, get) => ({
     companyId,
     contractId,
     invoiceId,
-    poId
+    poId,
+    agreementId = null
   ) => {
     set({ isLoading: true, error: null });
     try {
@@ -51,7 +59,8 @@ export const usePaymentOrderStore = create((set, get) => ({
         companyId,
         contractId,
         invoiceId,
-        poId
+        poId,
+        agreementId
       );
       set({ isLoading: false });
       return data;
@@ -72,7 +81,8 @@ export const usePaymentOrderStore = create((set, get) => ({
     companyId,
     contractId,
     invoiceId,
-    payload
+    payload,
+    agreementId = null
   ) => {
     set({ isLoading: true, error: null });
     try {
@@ -81,7 +91,8 @@ export const usePaymentOrderStore = create((set, get) => ({
         companyId,
         contractId,
         invoiceId,
-        payload
+        payload,
+        agreementId
       );
       set((state) => ({
         paymentOrders: [data, ...state.paymentOrders],
@@ -106,7 +117,8 @@ export const usePaymentOrderStore = create((set, get) => ({
     contractId,
     invoiceId,
     poId,
-    payload
+    payload,
+    agreementId = null
   ) => {
     set({ isLoading: true, error: null });
     try {
@@ -116,7 +128,8 @@ export const usePaymentOrderStore = create((set, get) => ({
         contractId,
         invoiceId,
         poId,
-        payload
+        payload,
+        agreementId
       );
       set((state) => ({
         paymentOrders: state.paymentOrders.map((po) =>
@@ -142,7 +155,8 @@ export const usePaymentOrderStore = create((set, get) => ({
     companyId,
     contractId,
     invoiceId,
-    poId
+    poId,
+    agreementId = null
   ) => {
     set({ isLoading: true, error: null });
     try {
@@ -151,7 +165,8 @@ export const usePaymentOrderStore = create((set, get) => ({
         companyId,
         contractId,
         invoiceId,
-        poId
+        poId,
+        agreementId
       );
       set((state) => ({
         paymentOrders: state.paymentOrders.filter((po) => po.id !== poId),

@@ -3,9 +3,6 @@ import API_URL_AUTH from "./auth.service";
 const BASE_URL = "/api/approvals";
 const COMPLIANCE_URL = "/api/compliance";
 
-// ============================================================
-// СПИСОК ДОКУМЕНТОВ НА СОГЛАСОВАНИИ
-// ============================================================
 export const fetchPendingApprovals = async (filters = {}) => {
   const params = {};
   if (filters.stage) params.stage = filters.stage;
@@ -18,9 +15,6 @@ export const fetchPendingApprovals = async (filters = {}) => {
   return data;
 };
 
-// ============================================================
-// ДЕТАЛИ ДОКУМЕНТА
-// ============================================================
 export const fetchApprovalDetail = async (entityType, id) => {
   const { data } = await API_URL_AUTH.get(
     `${BASE_URL}/${entityType}/${id}`
@@ -28,9 +22,6 @@ export const fetchApprovalDetail = async (entityType, id) => {
   return data;
 };
 
-// ============================================================
-// РЕШЕНИЕ КОМПЛАЕНСА
-// ============================================================
 export const submitComplianceDecision = async (entityType, id, payload) => {
   const { data } = await API_URL_AUTH.post(
     `${BASE_URL}/${entityType}/${id}/compliance`,
@@ -60,9 +51,6 @@ export const submitCurrencyControlDecision = async (
   return data;
 };
 
-// ============================================================
-// ЗАЯВКИ НА ПРОДЛЕНИЕ ГТД
-// ============================================================
 export const fetchGtdExtensionsPending = async (
   branchId,
   page = 1,

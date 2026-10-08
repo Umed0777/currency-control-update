@@ -1,34 +1,43 @@
 import API_URL_AUTH from "./auth.service";
 
-const buildBaseUrl = (branchId, companyId, contractId) =>
+// ============================================================
+//  БАЗОВЫЕ URL
+// ============================================================
+
+// Для ГТД по контракту (общий список)
+const buildContractGtdUrl = (branchId, companyId, contractId) =>
   `/api/branches/${branchId}/dashboard/companies/${companyId}/contracts/${contractId}/gtd`;
 
-const buildInvoiceBaseUrl = (branchId, companyId, contractId, invoiceId) =>
+// Для ГТД по инвойсу (обычному или доп. соглашения)
+const buildInvoiceGtdUrl = (branchId, companyId, contractId, invoiceId) =>
   `/api/branches/${branchId}/dashboard/companies/${companyId}/contracts/${contractId}/invoices/${invoiceId}/gtd`;
 
-// ============================================================
-//  СПИСКИ / КАРТОЧКИ
-// ============================================================
-
-export const fetchGtdList = async (branchId, companyId, contractId) => {
-  const { data } = await API_URL_AUTH.get(
-    buildBaseUrl(branchId, companyId, contractId)
-  );
-  return data;
-};
-
-export const fetchGtdById = async (
+// Для ГТД по доп. соглашению (общий список)
+const buildAgreementGtdUrl = (
   branchId,
   companyId,
   contractId,
-  gtdId
-) => {
+  agreementId
+) =>
+  `/api/branches/${branchId}/dashboard/companies/${companyId}/contracts/${contractId}/additional-agreements/${agreementId}/gtd`;
+
+// ============================================================
+//  GET — СПИСКИ И КАРТОЧКИ
+// ============================================================
+
+/**
+ * GET список ГТД по контракту
+ */
+export const fetchGtdList = async (branchId, companyId, contractId) => {
   const { data } = await API_URL_AUTH.get(
-    `${buildBaseUrl(branchId, companyId, contractId)}/${gtdId}`
+    buildContractGtdUrl(branchId, companyId, contractId)
   );
   return data;
 };
 
+/**
+ * GET список ГТД по инвойсу (обычному или доп. соглашения)
+ */
 export const fetchGtdByInvoice = async (
   branchId,
   companyId,
@@ -36,13 +45,43 @@ export const fetchGtdByInvoice = async (
   invoiceId
 ) => {
   const { data } = await API_URL_AUTH.get(
-    buildInvoiceBaseUrl(branchId, companyId, contractId, invoiceId)
+    buildInvoiceGtdUrl(branchId, companyId, contractId, invoiceId)
+  );
+  return data;
+};
+
+/**
+ * GET список ГТД по доп. соглашению (общий, без привязки к инвойсу)
+ */
+export const fetchGtdByAgreement = async (
+  branchId,
+  companyId,
+  contractId,
+  agreementId
+) => {
+  const { data } = await API_URL_AUTH.get(
+    buildAgreementGtdUrl(branchId, companyId, contractId, agreementId)
+  );
+  return data;
+};
+
+/**
+ * GET карточка ГТД по ID
+ */
+export const fetchGtdById = async (
+  branchId,
+  companyId,
+  contractId,
+  gtdId
+) => {
+  const { data } = await API_URL_AUTH.get(
+    `${buildContractGtdUrl(branchId, companyId, contractId)}/${gtdId}`
   );
   return data;
 };
 
 // ============================================================
-//  СОЗДАНИЕ / ОБНОВЛЕНИЕ / УДАЛЕНИЕ
+//  POST / PUT / DELETE
 // ============================================================
 
 const buildGtdFormData = (payload) => {
@@ -62,6 +101,11 @@ const buildGtdFormData = (payload) => {
   append("document_type", payload.document_type);
   append("invoice_id", payload.invoice_id);
 
+  // ✅ Поля отправителя (согласно Swagger)
+  append("sender_name", payload.sender_name);
+  append("sender_bank", payload.sender_bank);
+  append("sender_country", payload.sender_country);
+
   if (payload.document instanceof File) {
     fd.append("document", payload.document);
   }
@@ -69,6 +113,9 @@ const buildGtdFormData = (payload) => {
   return fd;
 };
 
+/**
+ * POST создать ГТД, привязанный к инвойсу
+ */
 export const createGtd = async (
   branchId,
   companyId,
@@ -78,13 +125,16 @@ export const createGtd = async (
 ) => {
   const fd = buildGtdFormData(payload);
   const { data } = await API_URL_AUTH.post(
-    buildInvoiceBaseUrl(branchId, companyId, contractId, invoiceId),
+    buildInvoiceGtdUrl(branchId, companyId, contractId, invoiceId),
     fd,
     { headers: { "Content-Type": "multipart/form-data" } }
   );
   return data;
 };
 
+/**
+ * PUT обновить ГТД
+ */
 export const updateGtd = async (
   branchId,
   companyId,
@@ -94,13 +144,16 @@ export const updateGtd = async (
 ) => {
   const fd = buildGtdFormData(payload);
   const { data } = await API_URL_AUTH.put(
-    `${buildBaseUrl(branchId, companyId, contractId)}/${gtdId}`,
+    `${buildContractGtdUrl(branchId, companyId, contractId)}/${gtdId}`,
     fd,
     { headers: { "Content-Type": "multipart/form-data" } }
   );
   return data;
 };
 
+/**
+ * DELETE ГТД
+ */
 export const deleteGtd = async (
   branchId,
   companyId,
@@ -108,23 +161,15 @@ export const deleteGtd = async (
   gtdId
 ) => {
   const { data } = await API_URL_AUTH.delete(
-    `${buildBaseUrl(branchId, companyId, contractId)}/${gtdId}`
+    `${buildContractGtdUrl(branchId, companyId, contractId)}/${gtdId}`
   );
   return data;
 };
 
 // ============================================================
-//  ПРОДЛЕНИЕ СРОКА ГТД
+//  ПРОДЛЕНИЕ СРОКА
 // ============================================================
 
-/**
- * POST /api/branches/{id}/dashboard/companies/{company_id}/contracts/{contract_id}
- *      /invoices/{invoice_id}/gtd/{gtd_id}/extend
- *
- * multipart/form-data:
- *   - requested_deadline: "YYYY-MM-DD"
- *   - document: File (PDF)
- */
 export const extendGtdDeadline = async ({
   branchId,
   companyId,
@@ -139,7 +184,7 @@ export const extendGtdDeadline = async ({
   if (document) fd.append("document", document);
 
   const { data } = await API_URL_AUTH.post(
-    `${buildInvoiceBaseUrl(
+    `${buildInvoiceGtdUrl(
       branchId,
       companyId,
       contractId,
@@ -151,12 +196,6 @@ export const extendGtdDeadline = async ({
   return data;
 };
 
-/**
- * GET /api/branches/{id}/dashboard/companies/{company_id}/contracts/{contract_id}
- *     /invoices/{invoice_id}/gtd/{gtd_id}/extension-history
- *
- * Возвращает массив заявок на продление срока по конкретной ГТД.
- */
 export const getGtdExtensionHistory = async ({
   branchId,
   companyId,
@@ -165,7 +204,7 @@ export const getGtdExtensionHistory = async ({
   gtdId,
 }) => {
   const { data } = await API_URL_AUTH.get(
-    `${buildInvoiceBaseUrl(
+    `${buildInvoiceGtdUrl(
       branchId,
       companyId,
       contractId,

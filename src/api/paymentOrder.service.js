@@ -1,51 +1,90 @@
 import API_URL_AUTH from "./auth.service";
 
-const buildBaseUrl = (branchId, companyId, contractId, invoiceId) =>
+// ============================================================
+//  БАЗОВЫЕ URL
+// ============================================================
+
+// ПП по обычному инвойсу
+const buildInvoicePoUrl = (branchId, companyId, contractId, invoiceId) =>
   `/api/branches/${branchId}/dashboard/companies/${companyId}/contracts/${contractId}/invoices/${invoiceId}/payment-orders`;
 
-// ==== GET список платёжных поручений ====
+// ПП по инвойсу доп. соглашения
+const buildAgreementInvoicePoUrl = (
+  branchId,
+  companyId,
+  contractId,
+  agreementId,
+  invoiceId
+) =>
+  `/api/branches/${branchId}/dashboard/companies/${companyId}/contracts/${contractId}/additional-agreements/${agreementId}/invoices/${invoiceId}/payment-orders`;
+
+// ============================================================
+//  GET — СПИСКИ И КАРТОЧКИ
+// ============================================================
+
+/**
+ * GET список ПП по инвойсу (обычному или доп. соглашения)
+ * Если передан agreementId — используется URL доп. соглашения
+ */
 export const fetchPaymentOrders = async (
   branchId,
   companyId,
   contractId,
-  invoiceId
+  invoiceId,
+  agreementId = null
 ) => {
-  const { data } = await API_URL_AUTH.get(
-    buildBaseUrl(branchId, companyId, contractId, invoiceId)
-  );
+  const url = agreementId
+    ? buildAgreementInvoicePoUrl(
+        branchId,
+        companyId,
+        contractId,
+        agreementId,
+        invoiceId
+      )
+    : buildInvoicePoUrl(branchId, companyId, contractId, invoiceId);
+
+  const { data } = await API_URL_AUTH.get(url);
   return data;
 };
 
-// ==== GET карточка платёжного поручения ====
+/**
+ * GET карточка ПП по ID
+ */
 export const fetchPaymentOrderById = async (
   branchId,
   companyId,
   contractId,
   invoiceId,
-  poId
+  poId,
+  agreementId = null
 ) => {
-  const { data } = await API_URL_AUTH.get(
-    `${buildBaseUrl(branchId, companyId, contractId, invoiceId)}/${poId}`
-  );
+  const base = agreementId
+    ? buildAgreementInvoicePoUrl(
+        branchId,
+        companyId,
+        contractId,
+        agreementId,
+        invoiceId
+      )
+    : buildInvoicePoUrl(branchId, companyId, contractId, invoiceId);
+
+  const { data } = await API_URL_AUTH.get(`${base}/${poId}`);
   return data;
 };
 
-// ==== POST создание платёжного поручения ====
-export const createPaymentOrder = async (
-  branchId,
-  companyId,
-  contractId,
-  invoiceId,
-  payload
-) => {
-  const formData = new FormData();
+// ============================================================
+//  POST / PUT / DELETE
+// ============================================================
+
+const buildPoFormData = (payload) => {
+  const fd = new FormData();
 
   const append = (key, value) => {
-    if (value === undefined || value === null) return;
+    if (value === undefined || value === null || value === "") return;
     if (value instanceof File) {
-      formData.append(key, value);
+      fd.append(key, value);
     } else {
-      formData.append(key, String(value));
+      fd.append(key, String(value));
     }
   };
 
@@ -60,71 +99,98 @@ export const createPaymentOrder = async (
   append("receiver_country", payload.receiver_country);
   append("value_date", payload.value_date);
 
-  if (payload.document) {
-    formData.append("document", payload.document);
+  // ✅ Поля отправителя (согласно Swagger)
+  append("sender_name", payload.sender_name);
+  append("sender_bank", payload.sender_bank);
+  append("sender_country", payload.sender_country);
+
+  if (payload.document instanceof File) {
+    fd.append("document", payload.document);
   }
 
-  const { data } = await API_URL_AUTH.post(
-    buildBaseUrl(branchId, companyId, contractId, invoiceId),
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" } }
-  );
+  return fd;
+};
+
+/**
+ * POST создать ПП
+ */
+export const createPaymentOrder = async (
+  branchId,
+  companyId,
+  contractId,
+  invoiceId,
+  payload,
+  agreementId = null
+) => {
+  const url = agreementId
+    ? buildAgreementInvoicePoUrl(
+        branchId,
+        companyId,
+        contractId,
+        agreementId,
+        invoiceId
+      )
+    : buildInvoicePoUrl(branchId, companyId, contractId, invoiceId);
+
+  const fd = buildPoFormData(payload);
+
+  const { data } = await API_URL_AUTH.post(url, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return data;
 };
 
-// ==== PUT редактирование платёжного поручения ====
+/**
+ * PUT обновить ПП
+ */
 export const updatePaymentOrder = async (
   branchId,
   companyId,
   contractId,
   invoiceId,
   poId,
-  payload
+  payload,
+  agreementId = null
 ) => {
-  const formData = new FormData();
+  const base = agreementId
+    ? buildAgreementInvoicePoUrl(
+        branchId,
+        companyId,
+        contractId,
+        agreementId,
+        invoiceId
+      )
+    : buildInvoicePoUrl(branchId, companyId, contractId, invoiceId);
 
-  const append = (key, value) => {
-    if (value === undefined || value === null) return;
-    if (value instanceof File) {
-      formData.append(key, value);
-    } else {
-      formData.append(key, String(value));
-    }
-  };
+  const fd = buildPoFormData(payload);
 
-  append("operation_date", payload.operation_date);
-  append("payment_order_number", payload.payment_order_number);
-  append("amount", payload.amount);
-  append("currency", payload.currency);
-  append("payer", payload.payer);
-  append("receiver_name", payload.receiver_name);
-  append("receiver_bank", payload.receiver_bank);
-  append("payment_purpose", payload.payment_purpose);
-  append("receiver_country", payload.receiver_country);
-  append("value_date", payload.value_date);
-
-  if (payload.document) {
-    formData.append("document", payload.document);
-  }
-
-  const { data } = await API_URL_AUTH.put(
-    `${buildBaseUrl(branchId, companyId, contractId, invoiceId)}/${poId}`,
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" } }
-  );
+  const { data } = await API_URL_AUTH.put(`${base}/${poId}`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return data;
 };
 
-// ==== DELETE платёжного поручения ====
+/**
+ * DELETE ПП
+ */
 export const deletePaymentOrder = async (
   branchId,
   companyId,
   contractId,
   invoiceId,
-  poId
+  poId,
+  agreementId = null
 ) => {
-  const { data } = await API_URL_AUTH.delete(
-    `${buildBaseUrl(branchId, companyId, contractId, invoiceId)}/${poId}`
-  );
+  const base = agreementId
+    ? buildAgreementInvoicePoUrl(
+        branchId,
+        companyId,
+        contractId,
+        agreementId,
+        invoiceId
+      )
+    : buildInvoicePoUrl(branchId, companyId, contractId, invoiceId);
+
+  const { data } = await API_URL_AUTH.delete(`${base}/${poId}`);
   return data;
 };

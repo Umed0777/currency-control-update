@@ -42,6 +42,7 @@ import {
   InboxOutlined,
   NumberOutlined,
   CreditCardOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -53,15 +54,41 @@ import DocumentLink from "./DocumentLink";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
-
 const CAN_CREATE_EDIT = ["admin", "compliance", "currency_control", "operator"];
 const CAN_EDIT = ["admin", "compliance", "currency_control"];
 const CAN_DELETE = ["admin", "compliance", "currency_control"];
+
+// ==================== ХЕЛПЕРЫ ДЛЯ ОПЦИЙ ====================
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value?.results && Array.isArray(value.results)) return value.results;
+  if (value?.data && Array.isArray(value.data)) return value.data;
+  return [];
+};
+
+const buildCurrencyOptions = (currencies) =>
+  toArray(currencies).map((c, index) => {
+    const code = c?.code || c?.iso_code || c?.currency_code || c?.id || "";
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(code || index),
+      label: `${code}${name ? ` — ${name}` : ""}`.trim(),
+    };
+  });
+
+const buildCountryOptions = (countries) =>
+  toArray(countries).map((c, index) => {
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(name || c?.id || index),
+      label: String(name || c?.id || index),
+    };
+  });
+
+const filterByLabel = (input, option) =>
+  String(option?.label || "")
+    .toLowerCase()
+    .includes(String(input || "").toLowerCase());
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -131,6 +158,9 @@ export const PaymentOrders = () => {
   const canDelete = CAN_DELETE.includes(normalizedRole);
   const safePO = Array.isArray(paymentOrders) ? paymentOrders : [];
 
+  const currencyOptions = buildCurrencyOptions(currencies);
+  const countryOptions = buildCountryOptions(countries);
+
   useEffect(() => {
     if (branchId && companyId && contractId && invoiceId) {
       fetchPaymentOrders(branchId, companyId, contractId, invoiceId);
@@ -149,7 +179,7 @@ export const PaymentOrders = () => {
       setLoadingCurrencies(true);
       try {
         const data = await searchCurrencies("");
-        setCurrencies(data);
+        setCurrencies(toArray(data));
       } catch {
         message.error("Не удалось загрузить список валют");
       } finally {
@@ -159,7 +189,7 @@ export const PaymentOrders = () => {
       setLoadingCountries(true);
       try {
         const data = await searchCountries("");
-        setCountries(data);
+        setCountries(toArray(data));
       } catch (err) {
         console.error("Ошибка загрузки стран:", err);
       } finally {
@@ -224,6 +254,10 @@ export const PaymentOrders = () => {
         record.amount !== undefined && record.amount !== null
           ? String(record.amount)
           : "",
+      // ✅ Поля отправителя
+      sender_name: record.sender_name || "",
+      sender_bank: record.sender_bank || "",
+      sender_country: record.sender_country || "",
       document: [],
     });
     setIsModalOpen(true);
@@ -254,6 +288,10 @@ export const PaymentOrders = () => {
         payment_purpose: values.payment_purpose?.trim() || "",
         receiver_country: values.receiver_country || "",
         value_date: values.value_date?.format("YYYY-MM-DD") || null,
+        // ✅ Поля отправителя
+        sender_name: values.sender_name?.trim() || "",
+        sender_bank: values.sender_bank?.trim() || "",
+        sender_country: values.sender_country || "",
         document: values.document?.[0]?.originFileObj || null,
       };
 
@@ -264,7 +302,7 @@ export const PaymentOrders = () => {
           contractId,
           invoiceId,
           editingPo.id,
-          payload
+          payload,
         );
         message.success("Платёжное поручение обновлено");
       } else {
@@ -273,7 +311,7 @@ export const PaymentOrders = () => {
           companyId,
           contractId,
           invoiceId,
-          payload
+          payload,
         );
         message.success("Платёжное поручение создано");
       }
@@ -281,6 +319,8 @@ export const PaymentOrders = () => {
       setIsModalOpen(false);
       form.resetFields();
       setEditingPo(null);
+
+      fetchPaymentOrders(branchId, companyId, contractId, invoiceId);
     } catch (err) {
       console.error("Ошибка сохранения ПП:", err);
       const backendMsg =
@@ -292,7 +332,7 @@ export const PaymentOrders = () => {
         backendMsg ||
           (editingPo
             ? "Не удалось обновить платёжное поручение"
-            : "Не удалось создать платёжное поручение")
+            : "Не удалось создать платёжное поручение"),
       );
     } finally {
       setSubmitting(false);
@@ -307,7 +347,7 @@ export const PaymentOrders = () => {
         companyId,
         contractId,
         invoiceId,
-        poId
+        poId,
       );
       message.success("Платёжное поручение удалено в корзину");
     } catch {
@@ -330,7 +370,7 @@ export const PaymentOrders = () => {
       width: 140,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -339,10 +379,10 @@ export const PaymentOrders = () => {
       title: "Дата валютирования",
       dataIndex: "value_date",
       key: "value_date",
-      width: 220,
+      width: 180,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -362,12 +402,12 @@ export const PaymentOrders = () => {
       title: "Плательщик",
       dataIndex: "payer",
       key: "payer",
-      width: 200,
+      width: 180,
       ellipsis: { showTitle: false },
       render: (v) => (
         <Tooltip title={v} placement="topLeft">
           <Space size={6}>
-            <UserOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+            <UserOutlined style={{ color: "#8b0000", fontSize: 12 }} />
             <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
           </Space>
         </Tooltip>
@@ -377,12 +417,12 @@ export const PaymentOrders = () => {
       title: "Название получатель",
       dataIndex: "receiver_name",
       key: "receiver_name",
-      width: 200,
+      width: 180,
       ellipsis: { showTitle: false },
       render: (v) => (
         <Tooltip title={v} placement="topLeft">
           <Space size={6}>
-            <UserOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+            <UserOutlined style={{ color: "#8b0000", fontSize: 12 }} />
             <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
           </Space>
         </Tooltip>
@@ -397,7 +437,7 @@ export const PaymentOrders = () => {
       render: (v) => (
         <Tooltip title={v} placement="topLeft">
           <Space size={6}>
-            <BankOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+            <BankOutlined style={{ color: "#8b0000", fontSize: 12 }} />
             <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
           </Space>
         </Tooltip>
@@ -410,13 +450,55 @@ export const PaymentOrders = () => {
       width: 170,
       render: (v) => (
         <Space size={6}>
-          <GlobalOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <GlobalOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
         </Space>
       ),
     },
     {
-      title: "Назначение",
+      title: "Отправитель",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            {/* <SendOutlined style={{ color: "#8b5cf6", fontSize: 12 }} /> */}
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Банк отправителя",
+      dataIndex: "sender_bank",
+      key: "sender_bank",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <BankOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Страна отправителя",
+      dataIndex: "sender_country",
+      key: "sender_country",
+      width: 180,
+      render: (v) => (
+        <Space size={6}>
+          <GlobalOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+          <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Назначение платежа",
       dataIndex: "payment_purpose",
       key: "payment_purpose",
       width: 220,
@@ -425,19 +507,6 @@ export const PaymentOrders = () => {
         <Tooltip title={v} placement="topLeft">
           <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
         </Tooltip>
-      ),
-    },
-    {
-      title: "Документ",
-      dataIndex: "document_path",
-      key: "document_path",
-      width: 260,
-      render: (v, record) => (
-        <DocumentLink
-          entityType="payment_order"
-          entityId={record.id}
-          filePath={v}
-        />
       ),
     },
     {
@@ -584,9 +653,7 @@ export const PaymentOrders = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -596,7 +663,7 @@ export const PaymentOrders = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
               Платёжные поручения
             </Title>
@@ -611,25 +678,11 @@ export const PaymentOrders = () => {
                   padding: "1px 10px",
                   fontWeight: 600,
                   margin: 0,
-                  color: '#8b0000',
+                  color: "#8b0000",
                 }}
               >
                 {branchId}
               </Tag>
-              {/* <Text type="secondary" style={{ fontSize: 13 }}>
-                Инвойс:
-              </Text>
-              <Tag
-                color="purple"
-                style={{
-                  borderRadius: 8,
-                  padding: "1px 10px",
-                  fontWeight: 600,
-                  margin: 0,
-                }}
-              >
-                ID {invoiceId}
-              </Tag> */}
             </Space>
           </div>
         </Space>
@@ -644,9 +697,7 @@ export const PaymentOrders = () => {
               style={{
                 borderRadius: 12,
                 height: 35,
-                // background:
-                //   "linear-gradient(90deg, #ff4b4b 0%, #d946ef 100%)",
-                background: '#8b0000',
+                background: "#8b0000",
                 border: "none",
                 boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
                 fontWeight: 600,
@@ -687,7 +738,7 @@ export const PaymentOrders = () => {
         >
           <Space size={10}>
             <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Список платёжных поручений
             </Text>
           </Space>
@@ -698,7 +749,7 @@ export const PaymentOrders = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: "#8b0000",
             }}
           >
             Всего: {safePO.length}
@@ -728,18 +779,6 @@ export const PaymentOrders = () => {
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
-                // showTotal: (total) => (
-                //   <span
-                //     style={{
-                //       color: "#ff4d4f",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего платёжных поручений: {total}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               locale={{
@@ -761,7 +800,7 @@ export const PaymentOrders = () => {
 
       <Modal
         title={
-          <span style={{ fontWeight: 700, color: '#8b0000', fontSize: 17 }}>
+          <span style={{ fontWeight: 700, color: "#8b0000", fontSize: 17 }}>
             {editingPo
               ? "Редактировать платёжное поручение"
               : "Создать платёжное поручение"}
@@ -784,7 +823,7 @@ export const PaymentOrders = () => {
         forceRender
         width={1000}
         style={{ top: 20 }}
-        styles={{ body: { maxHeight: "calc(100vh - 100px)" } }}
+        styles={{ body: { maxHeight: "calc(100vh - 20px)" } }}
         footer={[
           <Button
             key="submit"
@@ -823,7 +862,7 @@ export const PaymentOrders = () => {
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Основная информация
               </Text>
             </Space>
@@ -839,7 +878,6 @@ export const PaymentOrders = () => {
                 <Input
                   placeholder="Введите номер ПП"
                   style={{ borderRadius: 10 }}
-                //   prefix={<NumberOutlined style={{ color: "#8b5cf6" }} />}
                 />
               </Form.Item>
             </Col>
@@ -857,6 +895,15 @@ export const PaymentOrders = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          <Divider orientation="left">
+            <Space>
+              <DollarOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>
+                Финансы
+              </Text>
+            </Space>
+          </Divider>
 
           <Row gutter={16}>
             <Col span={12}>
@@ -886,13 +933,17 @@ export const PaymentOrders = () => {
                 <Select
                   showSearch
                   placeholder="Выберите валюту"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
                   loading={loadingCurrencies}
-                  optionFilterProp="label"
-                  options={currencies.map((c) => ({
-                    value: c.code,
-                    label: `${c.code} - ${c.name_ru}`,
-                  }))}
+                  filterOption={filterByLabel}
+                  options={currencyOptions}
+                  notFoundContent={
+                    loadingCurrencies ? (
+                      <Spin size="small" style={{ color: "#f00" }} />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
                 />
               </Form.Item>
             </Col>
@@ -917,7 +968,7 @@ export const PaymentOrders = () => {
           <Divider orientation="left">
             <Space>
               <UserOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Плательщик и получатель
               </Text>
             </Space>
@@ -939,7 +990,7 @@ export const PaymentOrders = () => {
             </Col>
             <Col span={12}>
               <Form.Item
-                label="Название получатель"
+                label="Название получателя"
                 name="receiver_name"
                 rules={[{ required: true, message: "Введите получателя" }]}
               >
@@ -975,14 +1026,75 @@ export const PaymentOrders = () => {
                 <Select
                   showSearch
                   placeholder="Выберите страну"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
                   loading={loadingCountries}
-                  filterOption={false}
-                  optionFilterProp="label"
-                  options={countries.map((c) => ({
-                    value: c.name_ru || c.name,
-                    label: c.name_ru || c.name,
-                  }))}
+                  filterOption={filterByLabel}
+                  options={countryOptions}
+                  notFoundContent={
+                    loadingCountries ? (
+                      <Spin size="small" style={{ color: "#f00" }} />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* ✅ РАЗДЕЛ: Отправитель */}
+          <Divider orientation="left">
+            <Space>
+              <SendOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>
+                Отправитель
+              </Text>
+            </Space>
+          </Divider>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Название отправителя"
+                name="sender_name"
+                rules={[{ required: true, message: "Введите название" }]}
+              >
+                <Input
+                  placeholder="Введите название отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<SendOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Банк отправителя"
+                name="sender_bank"
+                rules={[{ required: true, message: "Введите банк" }]}
+              >
+                <Input
+                  placeholder="Введите банк отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<BankOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Страна отправителя"
+                name="sender_country"
+                rules={[{ required: true, message: "Выберите страну" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Выберите страну отправителя"
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
+                  loading={loadingCountries}
+                  filterOption={filterByLabel}
+                  options={countryOptions}
                   notFoundContent={
                     loadingCountries ? (
                       <Spin size="small" style={{ color: "#f00" }} />
@@ -1009,73 +1121,6 @@ export const PaymentOrders = () => {
                   style={{ borderRadius: 10 }}
                   rows={3}
                 />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider orientation="left">
-            <Space>
-              <FileDoneOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
-                Документ
-              </Text>
-            </Space>
-          </Divider>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label={
-                  editingPo
-                    ? "Загрузить новый PDF (опционально)"
-                    : "Загрузить PDF (опционально)"
-                }
-                name="document"
-                valuePropName="fileList"
-                getValueFromEvent={(e) =>
-                  Array.isArray(e) ? e : e?.fileList
-                }
-                extra={
-                  editingPo?.document_path ? (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      Текущий файл:{" "}
-                      <Text code style={{ fontSize: 11 }}>
-                        {String(editingPo.document_path)
-                          .split(/[\\/]/)
-                          .pop()}
-                      </Text>
-                    </Text>
-                  ) : null
-                }
-              >
-                <Upload.Dragger
-                  beforeUpload={() => false}
-                  maxCount={1}
-                  accept=".pdf"
-                  style={{
-                    borderRadius: 12,
-                    background: "#fafafa",
-                    borderColor: "#8b0000",
-                  }}
-                >
-                  <p className="ant-upload-drag-icon">
-                    <InboxOutlined
-                      style={{ color: "#8b0000", fontSize: 36 }}
-                    />
-                  </p>
-                  <p
-                    className="ant-upload-text"
-                    style={{ fontSize: 14, fontWeight: 600 }}
-                  >
-                    Нажмите или перетащите файл
-                  </p>
-                  <p
-                    className="ant-upload-hint"
-                    style={{ fontSize: 12, color: "#999" }}
-                  >
-                    Поддерживается только PDF
-                  </p>
-                </Upload.Dragger>
               </Form.Item>
             </Col>
           </Row>

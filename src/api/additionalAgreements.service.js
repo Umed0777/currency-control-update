@@ -68,6 +68,9 @@ export const createAdditionalAgreement = async (
   append("receiver_name", payload.receiver_name);
   append("receiver_bank", payload.receiver_bank);
   append("receiver_country", payload.receiver_country);
+  append("sender_name", payload.sender_name);
+  append("sender_bank", payload.sender_bank);
+  append("sender_country", payload.sender_country);
   append("agreement_end_date", payload.agreement_end_date);
   append("doc_type", payload.doc_type);
   if (payload.document) {
@@ -82,6 +85,7 @@ export const createAdditionalAgreement = async (
   return data;
 };
 
+// === Обновление ===
 // === Обновление ===
 export const updateAdditionalAgreement = async (
   branchId,
@@ -101,6 +105,7 @@ export const updateAdditionalAgreement = async (
     }
   };
 
+  // ✅ Основные поля
   append("agreement_number", payload.agreement_number);
   append("agreement_date", payload.agreement_date);
   append("subject", payload.subject);
@@ -108,6 +113,17 @@ export const updateAdditionalAgreement = async (
   append("agreement_end_date", payload.agreement_end_date);
   append("return_days", payload.return_days);
   append("doc_type", payload.doc_type);
+
+  append("amount", payload.amount);
+  append("currency", payload.currency);
+
+  append("receiver_name", payload.receiver_name);
+  append("receiver_bank", payload.receiver_bank);
+  append("receiver_country", payload.receiver_country);
+  append("sender_name", payload.sender_name);
+  append("sender_bank", payload.sender_bank);
+  append("sender_country", payload.sender_country);
+
   if (payload.document) {
     formData.append("document", payload.document);
   }

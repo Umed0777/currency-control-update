@@ -42,6 +42,7 @@ import {
   NumberOutlined,
   FileAddOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined, // ✅ ИЗМЕНЕНИЕ: Добавлена иконка поиска
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -70,8 +71,6 @@ const STATUS_MAP = {
   cancelled: { label: "Отменён", color: "red" },
   archived: { label: "В архиве", color: "purple" },
 };
-
-// ✅ ПОЛНЫЙ СПИСОК СТАТУСОВ СОГЛАСОВАНИЯ
 const APPROVAL_STATUS_MAP = {
   pending: { label: "В ожидании", color: "gold" },
   pending_currency_control: {
@@ -90,7 +89,6 @@ const APPROVAL_STATUS_MAP = {
   archived: { label: "В архиве", color: "default" },
 };
 
-// ✅ Карта решений (комплаенс / ВК)
 const DECISION_MAP = {
   approve: { label: "Одобрено", color: "green" },
   reject: { label: "Отклонено", color: "red" },
@@ -172,6 +170,10 @@ export const ContractsUpdate = () => {
 
   const [editingContract, setEditingContract] = useState(null);
 
+  // ✅ ИЗМЕНЕНИЕ: Состояние для поиска
+  const [searchText, setSearchText] = useState(""); // Для поиска по номеру, предмету и т.д.
+  const [searchAmount, setSearchAmount] = useState(""); // Для поиска по сумме (amount из API)
+
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
@@ -183,10 +185,30 @@ export const ContractsUpdate = () => {
   const canCreateEdit = CAN_CREATE_EDIT.includes(normalizedRole);
   const canEdit = CAN_EDIT.includes(normalizedRole);
   const canDelete = CAN_DELETE.includes(normalizedRole);
-  const safeContracts = Array.isArray(contracts) ? contracts : [];
+  
+  // ✅ ИЗМЕНЕНИЕ: Фильтрация данных на клиенте (если API не поддерживает поиск по всем полям)
+  // Если API поддерживает параметр amount, мы должны передавать его в fetchContracts, но здесь мы фильтруем локально для мгновенного отклика
+  const filteredContracts = Array.isArray(contracts) ? contracts.filter((contract) => {
+    const matchesText = 
+      !searchText || 
+      String(contract.contract_number || "").toLowerCase().includes(searchText.toLowerCase()) ||
+      String(contract.subject || "").toLowerCase().includes(searchText.toLowerCase()) ||
+      String(contract.receiver_name || "").toLowerCase().includes(searchText.toLowerCase());
+    
+    // Поиск по сумме (точное совпадение или вхождение)
+    const matchesAmount = 
+      !searchAmount || 
+      String(contract.total_amount || "").includes(searchAmount);
+
+    return matchesText && matchesAmount;
+  }) : [];
+
+  const safeContracts = filteredContracts; // Используем отфильтрованные данные
 
   useEffect(() => {
     if (branchId && companyId) {
+      // ✅ ИЗМЕНЕНИЕ: Если API поддерживает передачу amount, можно раскомментировать:
+      // fetchContracts(branchId, companyId, { amount: searchAmount });
       fetchContracts(branchId, companyId);
     }
   }, [branchId, companyId, fetchContracts]);
@@ -240,6 +262,12 @@ export const ContractsUpdate = () => {
         setLoadingCountries(false);
       }
     }, 500);
+  };
+
+  // ✅ ИЗМЕНЕНИЕ: Функция сброса поиска
+  const handleResetSearch = () => {
+    setSearchText("");
+    setSearchAmount("");
   };
 
   const getAuthor = (record) => {
@@ -536,7 +564,6 @@ export const ContractsUpdate = () => {
       },
     },
 
-    // ✅ НОВАЯ КОЛОНКА: Комплаенс
     {
       title: "Комплаенс",
       key: "compliance",
@@ -591,7 +618,6 @@ export const ContractsUpdate = () => {
       },
     },
 
-    // ✅ НОВАЯ КОЛОНКА: Валютный контроль
     {
       title: "Валютный контроль",
       key: "currency_control",
@@ -860,8 +886,6 @@ export const ContractsUpdate = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
               background: '#8b0000',
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
@@ -906,7 +930,6 @@ export const ContractsUpdate = () => {
               style={{
                 borderRadius: 12,
                 height: 35,
-                // background: "linear-gradient(90deg, #ff4b4b 0%, #d946ef 100%)",
                 background: '#8b0000',
                 border: "none",
                 boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
@@ -935,6 +958,45 @@ export const ContractsUpdate = () => {
         }}
         bodyStyle={{ padding: 0 }}
       >
+        <div
+          style={{
+            padding: "16px 20px",
+            background: "#fff",
+            borderBottom: "1px solid rgba(139,0,0,0.06)",
+          }}
+        >
+          <Row gutter={10} align="end">
+            {/* <Col xs={24} sm={12} md={8}>
+              <Input
+                placeholder="Поиск по номеру, предмету, получателю..."
+                prefix={<SearchOutlined style={{ color: "#8b0000" }} />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                allowClear
+                style={{ borderRadius: 10 }}
+              />
+            </Col> */}
+            <Col xs={24} sm={12} md={6}>
+              <Input
+                placeholder="Поиск по сумме"
+                prefix={<DollarOutlined style={{ color: "#8b0000" }} />}
+                value={searchAmount}
+                onChange={(e) => setSearchAmount(e.target.value)}
+                allowClear
+                style={{ borderRadius: 10 }}
+              />
+            </Col>
+            <Col xs={24} sm={24} md={2}>
+               <Button 
+                 onClick={handleResetSearch}
+                 style={{ borderRadius: 10, width: '100%', background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
+               >
+                 Сбросить
+               </Button>
+            </Col>
+          </Row>
+        </div>
+
         <div
           style={{
             display: "flex",
@@ -997,18 +1059,6 @@ export const ContractsUpdate = () => {
                 pageSize: 10,
                 showSizeChanger: false,
                 pageSizeOptions: ["10", "20", "50"],
-                // showTotal: (total) => (
-                //   <span
-                //     style={{
-                //       color: "#ff4d4f",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего контрактов: {total}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               locale={{

@@ -49,7 +49,7 @@ const gradientText = {
   WebkitTextFillColor: "transparent",
 };
 
-const CAN_VIEW_TRASH = ["compliance", "currency_control"];
+const CAN_VIEW_TRASH = [ "admin", "compliance", "currency_control"];
 
 const ENTITY_TYPES = [
   { value: "", label: "Все типы" },
@@ -642,13 +642,11 @@ const Trash = () => {
           )}
         </div>
       </Card>
-
-      {/* ===== МОДАЛКА ДЕТАЛЕЙ ===== */}
       <Modal
         title={
           <Space size={10}>
-            <FileTextOutlined style={{ color: "#ff4b4b", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, ...gradientText }}>
+            <FileTextOutlined style={{ color: "#8b0000", fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: '#8b0000' }}>
               Детали удалённого документа
             </span>
           </Space>
@@ -743,7 +741,7 @@ const Trash = () => {
 
               <Descriptions.Item label="Сумма">
                 <Space size={4}>
-                  <DollarOutlined style={{ color: "#8b5cf6" }} />
+                  <DollarOutlined style={{ color: "#8b0000" }} />
                   {formatMoney(detail.amount, detail.currency)}
                 </Space>
               </Descriptions.Item>
@@ -754,7 +752,7 @@ const Trash = () => {
 
               <Descriptions.Item label="Дата документа">
                 <Space size={4}>
-                  <CalendarOutlined style={{ color: "#8b5cf6" }} />
+                  <CalendarOutlined style={{ color: "#8b0000" }} />
                   {formatDate(detail.document_date)}
                 </Space>
               </Descriptions.Item>
@@ -769,7 +767,7 @@ const Trash = () => {
                     style={{
                       fontFamily: "monospace",
                       fontSize: 12,
-                      color: "#8b5cf6",
+                      color: "#8b0000",
                     }}
                   >
                     {detail.document_path}
@@ -788,7 +786,7 @@ const Trash = () => {
                   size="small"
                   title={
                     <Space size={8}>
-                      <UserOutlined style={{ color: "#8b5cf6" }} />
+                      <UserOutlined style={{ color: "#8b0000" }} />
                       <Text strong style={{ fontSize: 13 }}>
                         Создал
                       </Text>
@@ -870,7 +868,7 @@ const Trash = () => {
                 }}
                 style={{
                   borderRadius: 10,
-                  background: "linear-gradient(90deg, #52c41a, #13c2c2)",
+                  background: "#8b0000",
                   border: "none",
                   fontWeight: 600,
                 }}
@@ -879,6 +877,7 @@ const Trash = () => {
               </Button>
 
               <Button
+              danger
                 icon={<DownloadOutlined />}
                 onClick={() => handleOpenFile(detail)}
                 style={{ borderRadius: 10 }}

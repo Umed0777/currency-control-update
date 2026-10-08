@@ -17,20 +17,14 @@ import {
   Select,
   Input,
   DatePicker,
-  Divider,
-  Upload,
 } from "antd";
 
 import {
   BarChartOutlined,
-  ReloadOutlined,
   ArrowLeftOutlined,
   DownloadOutlined,
   FileExcelOutlined,
-  UploadOutlined,
   FilterOutlined,
-  FileTextOutlined,
-  InboxOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";

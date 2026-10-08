@@ -21,6 +21,7 @@ import {
   Popconfirm,
   Divider,
   InputNumber,
+  Tabs,
 } from "antd";
 
 import {
@@ -40,6 +41,8 @@ import {
   InboxOutlined,
   DollarOutlined,
   NumberOutlined,
+  CreditCardOutlined,
+  MinusOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -48,21 +51,13 @@ import { useInvoiceStore } from "../store/useInvoiceStore";
 import { useAuthStore } from "../store/useAuth";
 import { searchCurrencies } from "../api/dictionary.service";
 import DocumentLink from "./DocumentLink";
+import GtdUpdate from "./GtdUpdate";
+import PaymentOrders from "./PaymentOrders";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
-
-// ===== РОЛИ =====
-// Создание — admin / compliance / operator
 const CAN_CREATE = ["admin", "compliance", "operator"];
-// Редактирование — admin / compliance / currency_control
 const CAN_EDIT = ["admin", "compliance", "currency_control"];
-// Удаление — admin / compliance / currency_control
 const CAN_DELETE = ["admin", "compliance", "currency_control"];
 
 const APPROVAL_STATUS_MAP = {
@@ -120,7 +115,6 @@ const formatMoney = (value, currency) => {
 };
 
 const AdditionalAgreementInvoices = () => {
-  // agreementId берём из URL — это path-параметр, в форме он не нужен
   const { id: branchId, companyId, contractId, agreementId } = useParams();
   const navigate = useNavigate();
   const { role } = useAuthStore();
@@ -149,14 +143,13 @@ const AdditionalAgreementInvoices = () => {
   const [currencies, setCurrencies] = useState([]);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
 
-  // Загрузка инвойсов доп. соглашения
+  // Загрузка инвойсов
   useEffect(() => {
     if (branchId && companyId && contractId && agreementId) {
       fetchInvoices(branchId, companyId, contractId, agreementId);
     }
   }, [branchId, companyId, contractId, agreementId, fetchInvoices]);
 
-  // Обработка ошибок
   useEffect(() => {
     if (error) {
       message.error(error);
@@ -164,7 +157,6 @@ const AdditionalAgreementInvoices = () => {
     }
   }, [error, clearError]);
 
-  // Загрузка валют
   useEffect(() => {
     const fetchCurrencies = async () => {
       setLoadingCurrencies(true);
@@ -180,7 +172,6 @@ const AdditionalAgreementInvoices = () => {
     fetchCurrencies();
   }, []);
 
-  // ============ МОДАЛКИ ============
   const openCreateModal = () => {
     setEditingInvoice(null);
     form.resetFields();
@@ -204,7 +195,6 @@ const AdditionalAgreementInvoices = () => {
     setIsModalOpen(true);
   };
 
-  // ============ СОХРАНЕНИЕ ============
   const handleSubmit = async () => {
     if (submitting) return;
 
@@ -218,10 +208,6 @@ const AdditionalAgreementInvoices = () => {
     setSubmitting(true);
     try {
       const formData = new FormData();
-
-      // agreement_id НЕ добавляем вручную — это path-параметр.
-      // Он уйдёт в URL внутри createAgreementInvoice / updateAgreementInvoice.
-
       formData.append(
         "invoice_number",
         String(values.invoice_number || "").trim()
@@ -241,21 +227,13 @@ const AdditionalAgreementInvoices = () => {
 
       if (editingInvoice) {
         await updateInvoice(
-          branchId,
-          companyId,
-          contractId,
-          editingInvoice.id,
-          formData,
-          agreementId
+          branchId, companyId, contractId,
+          editingInvoice.id, formData, agreementId
         );
         message.success("Инвойс обновлён");
       } else {
         await createInvoice(
-          branchId,
-          companyId,
-          contractId,
-          formData,
-          agreementId
+          branchId, companyId, contractId, formData, agreementId
         );
         message.success("Инвойс создан");
       }
@@ -284,16 +262,11 @@ const AdditionalAgreementInvoices = () => {
     }
   };
 
-  // ============ УДАЛЕНИЕ ============
   const handleDelete = async (e, invoiceId) => {
     e?.stopPropagation?.();
     try {
       await deleteInvoice(
-        branchId,
-        companyId,
-        contractId,
-        invoiceId,
-        agreementId
+        branchId, companyId, contractId, invoiceId, agreementId
       );
       message.success("Инвойс удалён в корзину");
     } catch {
@@ -301,7 +274,7 @@ const AdditionalAgreementInvoices = () => {
     }
   };
 
-  // ============ КОЛОНКИ ============
+  // ============ КОЛОНКИ ТАБЛИЦЫ ИНВОЙСОВ ============
   const columns = [
     {
       title: "Номер инвойса",
@@ -378,11 +351,7 @@ const AdditionalAgreementInvoices = () => {
       key: "document_path",
       width: 280,
       render: (v, record) => (
-        <DocumentLink
-          entityType="invoice"
-          entityId={record.id}
-          filePath={v}
-        />
+        <DocumentLink entityType="invoice" entityId={record.id} filePath={v} />
       ),
     },
     {
@@ -400,84 +369,95 @@ const AdditionalAgreementInvoices = () => {
       ),
     },
     {
-      title: "Обновлён",
-      dataIndex: "updated_at",
-      key: "updated_at",
-      width: 160,
-      render: (v) => (
+      title: "Действие",
+      key: "actions",
+      width: 180,
+      align: "center",
+      render: (_, record) => (
         <Space size={4}>
-          <HistoryOutlined style={{ color: "#d946ef", fontSize: 11 }} />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {formatDateTime(v)}
-          </Text>
+          {canEdit && (
+            <Tooltip title="Редактировать">
+              <Button
+                type="text"
+                icon={<EditOutlined style={{ color: "#8b0000" }} />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditModal(record);
+                }}
+              />
+            </Tooltip>
+          )}
+          {canDelete && (
+            <Popconfirm
+              title="Удалить инвойс?"
+              description="Инвойс будет перемещён в корзину."
+              okText="Удалить"
+              cancelText="Отмена"
+              okButtonProps={{ danger: true }}
+              onConfirm={(e) => handleDelete(e, record.id)}
+              onCancel={(e) => e?.stopPropagation?.()}
+            >
+              <Tooltip title="Удалить">
+                <Button
+                  type="text"
+                  icon={<DeleteOutlined style={{ color: "#e60026" }} />}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
-    ...(canEdit || canDelete
-      ? [
-          {
-            title: "Действие",
-            key: "actions",
-            width: 160,
-            align: "center",
-            render: (_, record) => (
-              <Space size={4}>
-                {/* <Tooltip title="Открыть инвойс">
-                  <Button
-                    type="text"
-                    icon={<FileDoneOutlined style={{ color: "#8b5cf6" }} />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(
-                        `/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${record.id}`
-                      );
-                    }}
-                  />
-                </Tooltip> */}
-
-                {canEdit && (
-                  <Tooltip title="Редактировать">
-                    <Button
-                      type="text"
-                      icon={<EditOutlined style={{ color: "#8b0000" }} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditModal(record);
-                      }}
-                    />
-                  </Tooltip>
-                )}
-
-                {canDelete && (
-                  <Popconfirm
-                    title="Удалить инвойс?"
-                    description="Инвойс будет перемещён в корзину."
-                    okText="Удалить"
-                    cancelText="Отмена"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={(e) => handleDelete(e, record.id)}
-                    onCancel={(e) => e?.stopPropagation?.()}
-                  >
-                    <Tooltip title="Удалить">
-                      <Button
-                        type="text"
-                        icon={<DeleteOutlined style={{ color: "#e60026" }} />}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </Tooltip>
-                  </Popconfirm>
-                )}
-              </Space>
-            ),
-          },
-        ]
-      : []),
   ];
+
+  // ===== РАСКРЫВАЮЩАЯСЯ СТРОКА: ВКЛАДКИ ГТД + ПП =====
+  const expandedRowRender = (invoiceRecord) => {
+    return (
+      <div style={{ padding: "16px 0" }}>
+        <Tabs
+          defaultActiveKey="gtd"
+          size="middle"
+          items={[
+            {
+              key: "gtd",
+              label: (
+                <Space>
+                  <FileDoneOutlined />
+                  <span>ГТД</span>
+                </Space>
+              ),
+              children: (
+                <div style={{ paddingTop: 12 }}>
+                  <GtdUpdate />
+                </div>
+              ),
+            },
+            {
+              key: "payment-orders",
+              label: (
+                <Space>
+                  <CreditCardOutlined />
+                  <span>Платёжные поручения</span>
+                </Space>
+              ),
+              children: (
+                <div style={{ paddingTop: 12 }}>
+                  <PaymentOrders />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+    );
+  };
 
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
   return (
     <div>
+      {/* Заголовок */}
       <div
         style={{
           display: "flex",
@@ -499,9 +479,7 @@ const AdditionalAgreementInvoices = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -511,11 +489,10 @@ const AdditionalAgreementInvoices = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
               Инвойсы доп. соглашения
             </Title>
-
             <Space size={10} style={{ marginTop: 4 }} wrap>
               <Text type="secondary" style={{ fontSize: 13 }}>
                 Филиал:
@@ -526,31 +503,12 @@ const AdditionalAgreementInvoices = () => {
                   padding: "1px 10px",
                   fontWeight: 600,
                   margin: 0,
-                  // background: "linear-gradient(90deg, #ffe4e6, #fce7f3)",
                   color: "#8b0000",
                   border: "none",
                 }}
               >
                 {branchId}
               </Tag>
-              {/* {agreementId && (
-                <>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    Доп. соглашение:
-                  </Text>
-                  <Tag
-                    color="purple"
-                    style={{
-                      borderRadius: 8,
-                      padding: "1px 10px",
-                      fontWeight: 600,
-                      margin: 0,
-                    }}
-                  >
-                    ID {agreementId}
-                  </Tag>
-                </>
-              )} */}
             </Space>
           </div>
         </Space>
@@ -588,6 +546,7 @@ const AdditionalAgreementInvoices = () => {
           </Button>
         </Space>
       </div>
+
       <Card
         style={{
           borderRadius: 18,
@@ -610,8 +569,11 @@ const AdditionalAgreementInvoices = () => {
         >
           <Space size={10}>
             <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Список инвойсов
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 10 }}>
+              (нажмите на строку, чтобы раскрыть ГТД и ПП)
             </Text>
           </Space>
           <Tag
@@ -621,7 +583,7 @@ const AdditionalAgreementInvoices = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: "#8b0000",
             }}
           >
             Всего: {safeInvoices.length}
@@ -648,21 +610,24 @@ const AdditionalAgreementInvoices = () => {
               columns={columns}
               dataSource={safeInvoices}
               scroll={{ x: "max-content" }}
+              expandable={{
+                expandedRowRender,
+                expandIcon: ({ expanded, onExpand, record }) => (
+                  <Button
+                    type="text"
+                    icon={expanded ? <MinusOutlined /> : <PlusOutlined />}
+                    onClick={(e) => onExpand(record, e)}
+                    style={{
+                      color: "#8b0000",
+                      fontSize: 14,
+                      borderRadius: "50%",
+                    }}
+                  />
+                ),
+              }}
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
-                // showTotal: (total) => (
-                //   <span
-                //     style={{
-                //       color: "#8b0000",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего: {total}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               locale={{
@@ -679,9 +644,11 @@ const AdditionalAgreementInvoices = () => {
           )}
         </div>
       </Card>
+
+      {/* Модалка инвойса */}
       <Modal
         title={
-          <span style={{ fontWeight: 700, color: '#8b0000', fontSize: 17 }}>
+          <span style={{ fontWeight: 700, color: "#8b0000", fontSize: 17 }}>
             {editingInvoice ? "Редактировать инвойс" : "Создать инвойс"}
           </span>
         }
@@ -745,7 +712,7 @@ const AdditionalAgreementInvoices = () => {
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Основная информация
               </Text>
             </Space>
@@ -761,7 +728,6 @@ const AdditionalAgreementInvoices = () => {
                 <Input
                   placeholder="Введите номер инвойса"
                   style={{ borderRadius: 10 }}
-                  // prefix={<NumberOutlined style={{ color: "#8b5cf6" }} />}
                 />
               </Form.Item>
             </Col>
@@ -783,7 +749,7 @@ const AdditionalAgreementInvoices = () => {
           <Divider orientation="left">
             <Space>
               <DollarOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Финансы
               </Text>
             </Space>
@@ -817,7 +783,7 @@ const AdditionalAgreementInvoices = () => {
                 <Select
                   showSearch
                   placeholder="Выберите валюту"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ borderRadius: 10, border: "1px solid #8b0000" }}
                   loading={loadingCurrencies}
                   optionFilterProp="label"
                   options={currencies.map((c) => ({
@@ -831,11 +797,7 @@ const AdditionalAgreementInvoices = () => {
 
           <Row gutter={16}>
             <Col span={10}>
-              <Form.Item
-                label="Код ТН ВЭД (HS CODE)"
-                name="hs_code"
-                rules={[{ required: true, message: "Введите код ТН ВЭД" }]}
-              >
+              <Form.Item label="Код ТН ВЭД (HS CODE)" name="hs_code">
                 <Input
                   placeholder="Введите код ТН ВЭД"
                   style={{ borderRadius: 10 }}
@@ -848,7 +810,7 @@ const AdditionalAgreementInvoices = () => {
           <Divider orientation="left">
             <Space>
               <FileDoneOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Документ
               </Text>
             </Space>
@@ -864,9 +826,7 @@ const AdditionalAgreementInvoices = () => {
                 }
                 name="document"
                 valuePropName="fileList"
-                getValueFromEvent={(e) =>
-                  Array.isArray(e) ? e : e?.fileList
-                }
+                getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
                 rules={
                   editingInvoice
                     ? []
@@ -896,9 +856,7 @@ const AdditionalAgreementInvoices = () => {
                   }}
                 >
                   <p className="ant-upload-drag-icon">
-                    <InboxOutlined
-                      style={{ color: "#8b0000", fontSize: 36 }}
-                    />
+                    <InboxOutlined style={{ color: "#8b0000", fontSize: 36 }} />
                   </p>
                   <p
                     className="ant-upload-text"
