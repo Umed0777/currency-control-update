@@ -46,11 +46,11 @@ import { useAuthStore } from "../store/useAuth";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
+// const gradientText = {
+//   background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
+//   WebkitBackgroundClip: "text",
+//   WebkitTextFillColor: "transparent",
+// };
 
 // ==== Справочники ====
 const ENTITY_TYPES = [
@@ -59,6 +59,7 @@ const ENTITY_TYPES = [
   { value: "additional_agreement", label: "Доп. соглашения" },
   { value: "invoice", label: "Инвойсы" },
   { value: "gtd", label: "ГТД" },
+  { value: "payment_order", label: "Платежный поручения" },
 ];
 
 const ENTITY_TYPE_LABELS = {
@@ -66,6 +67,7 @@ const ENTITY_TYPE_LABELS = {
   additional_agreement: "Доп. соглашение",
   invoice: "Инвойс",
   gtd: "ГТД",
+  payment_order: "Платежный поручения"
 };
 
 const ENTITY_TYPE_COLORS = {
@@ -113,11 +115,10 @@ const STATUS_MAP = {
 };
 
 const SCOPE_OPTIONS = [
-  { value: "mine", label: "Только мои" },
   { value: "all", label: "Все документы" },
+  { value: "mine", label: "Только мои" },
 ];
 
-// ==== Хелперы ====
 const formatDateTime = (value) => {
   if (!value) return "—";
   const d = new Date(value);
@@ -451,6 +452,7 @@ const MyDocuments = () => {
             style={{
               borderRadius: 12,
               background: "#8b0000",
+              border: '1px solid #8b0000',
               height: 35,
               color: "#fff",
             }}

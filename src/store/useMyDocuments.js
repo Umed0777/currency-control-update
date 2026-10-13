@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { getMyDocuments } from "../api/myDocuments.service";
 
 const DEFAULT_FILTERS = {
-  scope: "mine",
+  scope: "all",
   status: "all",
   entity_type: "all",
   page: 1,
@@ -42,7 +42,7 @@ export const useMyDocumentsStore = create((set, get) => ({
       const filters = overrideFilters ?? get().filters;
 
       const data = await getMyDocuments({
-        scope: filters.scope || "mine",
+        scope: filters.scope || "all",
         status: filters.status || "all",
         entity_type: filters.entity_type || "all",
         page: filters.page || 1,

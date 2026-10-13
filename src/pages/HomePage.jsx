@@ -1,5 +1,15 @@
-import { useEffect, useMemo } from "react";
-import { Card, Typography, Space, Tag, Row, Col, Tooltip, message } from "antd";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  Card,
+  Typography,
+  Space,
+  Tag,
+  Row,
+  Col,
+  Tooltip,
+  message,
+  notification,
+} from "antd";
 
 import {
   SafetyCertificateOutlined,
@@ -14,28 +24,29 @@ import {
   FileSearchOutlined,
   BarChartOutlined,
   InboxOutlined,
+  UserAddOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/useAuth";
 import { useBranchDashboardStore } from "../store/useBranchDashboard";
 import { useReportsStore } from "../store/useReportsStore";
+import { useAccessRequestsStore } from "../store/useAccessRequestsStore";
 
 const { Title, Text, Paragraph } = Typography;
-
-// const redGradientBg = {
-//   background: "linear-gradient(135deg, #ff4b4b 0%, #e60026 100%)",
-// };
 
 const HomePage = () => {
   const navigate = useNavigate();
 
   const { user, role, session } = useAuthStore();
+
+  const { fetchDashboard, fetchNotifications } = useBranchDashboardStore();
+
   const {
-    // notificationsTotal,
-    fetchDashboard,
-    fetchNotifications,
-  } = useBranchDashboardStore();
+    notifications: accessNotifications,
+    total: accessRequestsTotal,
+    fetchNotifications: fetchAccessRequestsNotifications,
+  } = useAccessRequestsStore();
 
   const {
     reportTypesCount,
@@ -55,11 +66,7 @@ const HomePage = () => {
     normalizedRole === "compliance" ||
     normalizedRole === "currency_control";
 
-  const canViewApprovalsPage =
-    normalizedRole === "admin" ||
-    normalizedRole === "compliance" ||
-    normalizedRole === "currency_control";
-
+  const canViewApprovalsPage = canViewApprovals;
   const canViewReports = normalizedRole !== "operator";
 
   const canViewAuditLogs =
@@ -77,6 +84,8 @@ const HomePage = () => {
     normalizedRole === "compliance" ||
     normalizedRole === "currency_control" ||
     normalizedRole === "branch_head";
+
+  const shownIdsRef = useRef(new Set());
 
   const roleLabel = useMemo(() => {
     const map = {
@@ -100,8 +109,61 @@ const HomePage = () => {
       fetchDashboard(branchId).catch(() => {});
       fetchNotifications(branchId).catch(() => {});
     }
+
+    if (!isAdminOrCompliance) return;
+
+    // Первый запрос сразу
+    fetchAccessRequestsNotifications().catch(() => {});
+
+    // Опрос каждые 15 секунд
+    const interval = setInterval(() => {
+      fetchAccessRequestsNotifications().catch(() => {});
+    }, 15000);
+
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId]);
+  }, [branchId, isAdminOrCompliance]);
+
+  useEffect(() => {
+    if (!isAdminOrCompliance) return;
+    if (!accessNotifications || accessNotifications.length === 0) return;
+
+    accessNotifications.forEach((item) => {
+      const key = String(item.request_id ?? item.id ?? item.login);
+      if (!key || shownIdsRef.current.has(key)) return;
+
+      shownIdsRef.current.add(key);
+
+      notification.info({
+        message: "Новая заявка на доступ",
+        description: (
+          <div style={{ fontSize: 13 }}>
+            <div>
+              <strong>{item.full_name || item.login}</strong> запрашивает
+              доступ
+            </div>
+            {item.role_name && (
+              <div style={{ color: "#666" }}>
+                Роль: <b>{item.role_name}</b>
+              </div>
+            )}
+            {item.branch_name && (
+              <div style={{ color: "#666" }}>
+                Филиал: <b>{item.branch_name}</b>
+              </div>
+            )}
+          </div>
+        ),
+        icon: <UserAddOutlined style={{ color: "#fa8c16" }} />,
+        placement: "topRight",
+        // автоматически закроется через 10 секунд
+        duration: 10,
+        onClick: () => navigate("/access-requests"),
+        style: { cursor: "pointer", width: 360 },
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessNotifications, isAdminOrCompliance]);
 
   useEffect(() => {
     if (canViewReports && !typesLoaded) {
@@ -147,7 +209,9 @@ const HomePage = () => {
       key: "access-requests",
       title: "Заявки на доступ",
       desc: "Новые запросы на роли и филиалы",
+      value: accessRequestsTotal > 0 ? accessRequestsTotal : undefined,
       icon: <AuditOutlined />,
+      color: "#fa8c16",
       onClick: () => navigate("/access-requests"),
       visible: isAdminOrCompliance,
     },
@@ -209,12 +273,14 @@ const HomePage = () => {
     },
     {
       key: "control",
-      title: "Документы на согласовании",
+      title: "Документы на санкционирование",
       desc: "Ожидают проверки ВК или Комплаенс",
       value: true,
       icon: <SafetyCertificateOutlined />,
       color: "#fa8c16",
-      onClick: canViewApprovalsPage ? () => navigate("/approvals") : undefined,
+      onClick: canViewApprovalsPage
+        ? () => navigate("/approvals")
+        : undefined,
       visible: canViewApprovals,
     },
   ].filter((a) => a.visible);
@@ -228,7 +294,6 @@ const HomePage = () => {
         gap: 24,
       }}
     >
-      {/* ============ HERO ============ */}
       <Card
         style={{
           borderRadius: 24,
@@ -240,7 +305,6 @@ const HomePage = () => {
       >
         <div
           style={{
-            // ...redGradientBg,
             background: "#8b0000",
             padding: "48px 40px",
             position: "relative",
@@ -400,7 +464,6 @@ const HomePage = () => {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        // ...redGradientBg,
                         background: "#8b0000",
                         color: "#fff",
                         fontSize: 18,

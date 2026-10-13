@@ -3,7 +3,7 @@ import API_URL_AUTH from "./auth.service";
 /**
  *
  * @param {Object} params
- * @param {"mine"|"all"} [params.scope="mine"]
+ * @param {"all"|"mine"} [params.scope="mine"]
  * @param {string} [params.status]      - all | pending_currency_control | pending_compliance | revision_required | approved | rejected
  * @param {string} [params.entity_type] - all | contract | invoice | gtd | additional_agreement
  * @param {number} [params.page=1]

@@ -42,7 +42,8 @@ import {
   NumberOutlined,
   FileAddOutlined,
   SafetyCertificateOutlined,
-  SearchOutlined, // ✅ ИЗМЕНЕНИЕ: Добавлена иконка поиска
+  SearchOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -54,11 +55,11 @@ import DocumentLink from "../pages/DocumentLink";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
+// const gradientText = {
+//   background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
+//   WebkitBackgroundClip: "text",
+//   WebkitTextFillColor: "transparent",
+// };
 
 const CAN_CREATE_EDIT = ["admin", "compliance", "operator"];
 const CAN_EDIT = ["admin", "compliance"];
@@ -104,6 +105,14 @@ const CURRENCY_COLORS = {
   TJS: "#722ed1",
 };
 
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value?.results && Array.isArray(value.results)) return value.results;
+  if (value?.data && Array.isArray(value.data)) return value.data;
+  if (value?.items && Array.isArray(value.items)) return value.items;
+  return [];
+};
+
 const formatDateTime = (value) => {
   if (!value) return "—";
   const date = new Date(value);
@@ -146,6 +155,10 @@ const INITIAL_FORM_VALUES = {
   remaining_amount: 0,
   total_amount: "",
   return_days: "",
+  sender_name: "",
+  sender_bank: "",
+  sender_country: undefined,
+  receiver_country: undefined,
 };
 
 export const ContractsUpdate = () => {
@@ -170,9 +183,8 @@ export const ContractsUpdate = () => {
 
   const [editingContract, setEditingContract] = useState(null);
 
-  // ✅ ИЗМЕНЕНИЕ: Состояние для поиска
-  const [searchText, setSearchText] = useState(""); // Для поиска по номеру, предмету и т.д.
-  const [searchAmount, setSearchAmount] = useState(""); // Для поиска по сумме (amount из API)
+  const [searchText, setSearchText] = useState("");
+  const [searchAmount, setSearchAmount] = useState("");
 
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
@@ -185,30 +197,62 @@ export const ContractsUpdate = () => {
   const canCreateEdit = CAN_CREATE_EDIT.includes(normalizedRole);
   const canEdit = CAN_EDIT.includes(normalizedRole);
   const canDelete = CAN_DELETE.includes(normalizedRole);
-  
-  // ✅ ИЗМЕНЕНИЕ: Фильтрация данных на клиенте (если API не поддерживает поиск по всем полям)
-  // Если API поддерживает параметр amount, мы должны передавать его в fetchContracts, но здесь мы фильтруем локально для мгновенного отклика
-  const filteredContracts = Array.isArray(contracts) ? contracts.filter((contract) => {
-    const matchesText = 
-      !searchText || 
-      String(contract.contract_number || "").toLowerCase().includes(searchText.toLowerCase()) ||
-      String(contract.subject || "").toLowerCase().includes(searchText.toLowerCase()) ||
-      String(contract.receiver_name || "").toLowerCase().includes(searchText.toLowerCase());
-    
-    // Поиск по сумме (точное совпадение или вхождение)
-    const matchesAmount = 
-      !searchAmount || 
-      String(contract.total_amount || "").includes(searchAmount);
 
-    return matchesText && matchesAmount;
-  }) : [];
+  const filteredContracts = Array.isArray(contracts)
+    ? contracts.filter((contract) => {
+        const matchesText =
+          !searchText ||
+          String(contract.contract_number || "")
+            .toLowerCase()
+            .includes(searchText.toLowerCase()) ||
+          String(contract.subject || "")
+            .toLowerCase()
+            .includes(searchText.toLowerCase()) ||
+          String(contract.receiver_name || "")
+            .toLowerCase()
+            .includes(searchText.toLowerCase());
 
-  const safeContracts = filteredContracts; // Используем отфильтрованные данные
+        const matchesAmount =
+          !searchAmount ||
+          String(contract.total_amount || "").includes(searchAmount);
+
+        return matchesText && matchesAmount;
+      })
+    : [];
+
+  const safeContracts = filteredContracts;
+
+  const countryOptions = countries
+    .map((c, index) => {
+      if (typeof c === "string") {
+        const val = c.trim();
+        return val ? { value: val, label: val } : null;
+      }
+      const name =
+        c?.name_ru ||
+        c?.name ||
+        c?.title ||
+        c?.country_name ||
+        c?.name_en ||
+        "";
+      const val = String(name || c?.id || "").trim();
+      if (!val) return null;
+      return { value: val, label: val };
+    })
+    .filter(Boolean);
+
+  const currencyOptions = currencies.map((c, index) => {
+    if (typeof c === "string") return { value: c, label: c };
+    const code = c?.code || c?.iso_code || c?.currency_code || c?.id || "";
+    const name = c?.name_ru || c?.name || c?.title || "";
+    return {
+      value: String(code || index),
+      label: `${code}${name ? ` - ${name}` : ""}`.trim(),
+    };
+  });
 
   useEffect(() => {
     if (branchId && companyId) {
-      // ✅ ИЗМЕНЕНИЕ: Если API поддерживает передачу amount, можно раскомментировать:
-      // fetchContracts(branchId, companyId, { amount: searchAmount });
       fetchContracts(branchId, companyId);
     }
   }, [branchId, companyId, fetchContracts]);
@@ -225,7 +269,7 @@ export const ContractsUpdate = () => {
       setLoadingCurrencies(true);
       try {
         const currenciesData = await searchCurrencies("");
-        setCurrencies(currenciesData);
+        setCurrencies(toArray(currenciesData));
       } catch (err) {
         message.error("Не удалось загрузить список валют");
       } finally {
@@ -235,7 +279,7 @@ export const ContractsUpdate = () => {
       setLoadingCountries(true);
       try {
         const countriesData = await searchCountries("");
-        setCountries(countriesData);
+        setCountries(toArray(countriesData));
       } catch (err) {
         console.error("Ошибка загрузки стран:", err);
       } finally {
@@ -255,7 +299,7 @@ export const ContractsUpdate = () => {
       setLoadingCountries(true);
       try {
         const data = await searchCountries(value);
-        setCountries(data);
+        setCountries(toArray(data));
       } catch (err) {
         console.error("Ошибка поиска стран:", err);
       } finally {
@@ -264,7 +308,6 @@ export const ContractsUpdate = () => {
     }, 500);
   };
 
-  // ✅ ИЗМЕНЕНИЕ: Функция сброса поиска
   const handleResetSearch = () => {
     setSearchText("");
     setSearchAmount("");
@@ -328,6 +371,10 @@ export const ContractsUpdate = () => {
           ? String(record.total_amount)
           : "",
       document: [],
+      sender_name: record.sender_name || "",
+      sender_bank: record.sender_bank || "",
+      sender_country: record.sender_country || undefined,
+      receiver_country: record.receiver_country || undefined,
     });
 
     setIsModalOpen(true);
@@ -361,6 +408,9 @@ export const ContractsUpdate = () => {
         receiver_name: values.receiver_name?.trim() || "",
         receiver_bank: values.receiver_bank?.trim() || "",
         receiver_country: values.receiver_country || "",
+        sender_name: values.sender_name?.trim() || "",
+        sender_bank: values.sender_bank?.trim() || "",
+        sender_country: values.sender_country || "",
         status: values.status || "draft",
         approval_status: values.approval_status || "pending",
         created_by: values.created_by?.trim() || "",
@@ -390,7 +440,7 @@ export const ContractsUpdate = () => {
         backendMsg ||
           (editingContract
             ? "Не удалось обновить контракт"
-            : "Не удалось создать контракт")
+            : "Не удалось создать контракт"),
       );
     } finally {
       setSubmitting(false);
@@ -409,13 +459,13 @@ export const ContractsUpdate = () => {
 
   const handleRowClick = (record) => {
     navigate(
-      `/branches/${branchId}/companies/${companyId}/contracts/${record.id}/invoices`
+      `/branches/${branchId}/companies/${companyId}/contracts/${record.id}/invoices`,
     );
   };
 
   const handleOpenAdditionalAgreements = (record) => {
     navigate(
-      `/branches/${branchId}/companies/${companyId}/contracts/${record.id}/additional-agreements`
+      `/branches/${branchId}/companies/${companyId}/contracts/${record.id}/additional-agreements`,
     );
   };
 
@@ -485,7 +535,7 @@ export const ContractsUpdate = () => {
       width: 130,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -497,7 +547,7 @@ export const ContractsUpdate = () => {
       width: 130,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -509,7 +559,7 @@ export const ContractsUpdate = () => {
       width: 130,
       render: (v) => (
         <Space size={4}>
-          <CalendarOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <CalendarOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
@@ -521,7 +571,7 @@ export const ContractsUpdate = () => {
       width: 150,
       align: "center",
       render: (v) => (
-        <Tag color="purple" style={{ borderRadius: 8 }}>
+        <Tag color="red" style={{ borderRadius: 8 }}>
           {v !== undefined && v !== null ? v : "—"}
         </Tag>
       ),
@@ -660,7 +710,7 @@ export const ContractsUpdate = () => {
             )}
             <Text style={{ fontSize: 11 }}>
               <UserOutlined
-                style={{ color: "#fa8c16", fontSize: 10, marginRight: 4 }}
+                style={{ color: "#8b0000", fontSize: 10, marginRight: 4 }}
               />
               {fullName || login}
             </Text>
@@ -681,7 +731,7 @@ export const ContractsUpdate = () => {
       render: (v) => (
         <Tooltip title={v} placement="topLeft">
           <Space size={6}>
-            <UserOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+            <UserOutlined style={{ color: "#8b0000", fontSize: 12 }} />
             <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
           </Space>
         </Tooltip>
@@ -696,7 +746,7 @@ export const ContractsUpdate = () => {
       render: (v) => (
         <Tooltip title={v} placement="topLeft">
           <Space size={6}>
-            <BankOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+            <BankOutlined style={{ color: "#8b0000", fontSize: 12 }} />
             <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
           </Space>
         </Tooltip>
@@ -709,22 +759,61 @@ export const ContractsUpdate = () => {
       width: 160,
       render: (v) => (
         <Space size={6}>
-          <GlobalOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
+          <GlobalOutlined style={{ color: "#8b0000", fontSize: 12 }} />
           <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
         </Space>
       ),
     },
+
+    {
+      title: "Название отправителя",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Банк отправителя",
+      dataIndex: "sender_bank",
+      key: "sender_bank",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => (
+        <Tooltip title={v} placement="topLeft">
+          <Space size={6}>
+            <BankOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+            <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Страна отправителя",
+      dataIndex: "sender_country",
+      key: "sender_country",
+      width: 160,
+      render: (v) => (
+        <Space size={6}>
+          <GlobalOutlined style={{ color: "#8b0000", fontSize: 12 }} />
+          <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+        </Space>
+      ),
+    },
+
     {
       title: "Документ",
       dataIndex: "document_path",
       key: "document_path",
       width: 320,
       render: (v, record) => (
-        <DocumentLink
-          entityType="contract"
-          entityId={record.id}
-          filePath={v}
-        />
+        <DocumentLink entityType="contract" entityId={record.id} filePath={v} />
       ),
     },
     {
@@ -783,7 +872,7 @@ export const ContractsUpdate = () => {
       width: 160,
       render: (v) => (
         <Space size={4}>
-          <ClockCircleOutlined style={{ color: "#8b5cf6", fontSize: 11 }} />
+          <ClockCircleOutlined style={{ color: "#8b0000", fontSize: 11 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatDateTime(v)}
           </Text>
@@ -797,7 +886,7 @@ export const ContractsUpdate = () => {
       width: 160,
       render: (v) => (
         <Space size={4}>
-          <HistoryOutlined style={{ color: "#d946ef", fontSize: 11 }} />
+          <HistoryOutlined style={{ color: "#8b0000", fontSize: 11 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {formatDateTime(v)}
           </Text>
@@ -886,7 +975,7 @@ export const ContractsUpdate = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -896,12 +985,12 @@ export const ContractsUpdate = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
               Контракты компании
             </Title>
             <Space size={10} style={{ marginTop: 4 }}>
-              <Text type="secondary" style={{ fontSize: 13, }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
                 Филиал:
               </Text>
               <Tag
@@ -911,7 +1000,7 @@ export const ContractsUpdate = () => {
                   padding: "1px 10px",
                   fontWeight: 600,
                   margin: 0,
-                  color: '#8b0000',
+                  color: "#8b0000",
                 }}
               >
                 {branchId}
@@ -930,7 +1019,7 @@ export const ContractsUpdate = () => {
               style={{
                 borderRadius: 12,
                 height: 35,
-                background: '#8b0000',
+                background: "#8b0000",
                 border: "none",
                 boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
                 fontWeight: 600,
@@ -966,16 +1055,6 @@ export const ContractsUpdate = () => {
           }}
         >
           <Row gutter={10} align="end">
-            {/* <Col xs={24} sm={12} md={8}>
-              <Input
-                placeholder="Поиск по номеру, предмету, получателю..."
-                prefix={<SearchOutlined style={{ color: "#8b0000" }} />}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                allowClear
-                style={{ borderRadius: 10 }}
-              />
-            </Col> */}
             <Col xs={24} sm={12} md={6}>
               <Input
                 placeholder="Поиск по сумме"
@@ -987,12 +1066,18 @@ export const ContractsUpdate = () => {
               />
             </Col>
             <Col xs={24} sm={24} md={2}>
-               <Button 
-                 onClick={handleResetSearch}
-                 style={{ borderRadius: 10, width: '100%', background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
-               >
-                 Сбросить
-               </Button>
+              <Button
+                onClick={handleResetSearch}
+                style={{
+                  borderRadius: 10,
+                  width: "100%",
+                  background: "#8b0000",
+                  color: "#fff",
+                  border: "1px solid #8b0000",
+                }}
+              >
+                Сбросить
+              </Button>
             </Col>
           </Row>
         </div>
@@ -1010,10 +1095,10 @@ export const ContractsUpdate = () => {
         >
           <Space size={10}>
             <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Список контрактов
             </Text>
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8, }}>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
               (нажмите на строку, чтобы открыть инвойсы)
             </Text>
           </Space>
@@ -1024,7 +1109,7 @@ export const ContractsUpdate = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: "#8b0000",
             }}
           >
             Всего: {safeContracts.length}
@@ -1079,7 +1164,7 @@ export const ContractsUpdate = () => {
       <Modal
         title={
           <Space>
-            <span style={{ fontWeight: 700, color: '#8b0000', fontSize: 17 }}>
+            <span style={{ fontWeight: 700, color: "#8b0000", fontSize: 17 }}>
               {editingContract
                 ? "Редактировать контракт"
                 : "Создать новый контракт"}
@@ -1104,7 +1189,7 @@ export const ContractsUpdate = () => {
         width={1000}
         style={{ top: 30 }}
         styles={{
-          body: { maxHeight: "calc(100vh - 160px)" },
+          body: { maxHeight: "calc(120vh - 200px)" },
         }}
         footer={[
           <Button
@@ -1149,7 +1234,7 @@ export const ContractsUpdate = () => {
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Основная информация
               </Text>
             </Space>
@@ -1250,7 +1335,7 @@ export const ContractsUpdate = () => {
           <Divider orientation="left">
             <Space>
               <DollarOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Финансы
               </Text>
             </Space>
@@ -1288,10 +1373,7 @@ export const ContractsUpdate = () => {
                   style={{ borderRadius: 10 }}
                   loading={loadingCurrencies}
                   optionFilterProp="label"
-                  options={currencies.map((c) => ({
-                    value: c.code,
-                    label: `${c.code} - ${c.name_ru}`,
-                  }))}
+                  options={currencyOptions}
                 />
               </Form.Item>
             </Col>
@@ -1300,7 +1382,7 @@ export const ContractsUpdate = () => {
           <Divider orientation="left">
             <Space>
               <UserOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Получатель
               </Text>
             </Space>
@@ -1344,15 +1426,78 @@ export const ContractsUpdate = () => {
                 <Select
                   showSearch
                   placeholder="Выберите или введите страну"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
+                  style={{ width: "100%", borderRadius: 10 }}
                   loading={loadingCountries}
                   onSearch={handleCountrySearch}
                   filterOption={false}
                   optionFilterProp="label"
-                  options={countries.map((c) => ({
-                    value: c.name_ru || c.name,
-                    label: c.name_ru || c.name,
-                  }))}
+                  options={countryOptions}
+                  allowClear
+                  notFoundContent={
+                    loadingCountries ? (
+                      <Spin size="small" style={{ color: "#f00" }} />
+                    ) : (
+                      "Ничего не найдено"
+                    )
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider orientation="left">
+            <Space>
+              <SendOutlined style={{ color: "#8b0000" }} />
+              <Text strong style={{ color: "#8b0000" }}>
+                Отправитель
+              </Text>
+            </Space>
+          </Divider>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                label="Название отправителя"
+                name="sender_name"
+                rules={[{ required: true, message: "Введите название" }]}
+              >
+                <Input
+                  placeholder="Введите название отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<SendOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Банк отправителя"
+                name="sender_bank"
+                rules={[{ required: true, message: "Введите банк" }]}
+              >
+                <Input
+                  placeholder="Введите банк отправителя"
+                  style={{ borderRadius: 10 }}
+                  prefix={<BankOutlined style={{ color: "#8b0000" }} />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Страна отправителя"
+                name="sender_country"
+                rules={[{ required: true, message: "Выберите страну" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Выберите или введите страну"
+                  style={{ width: "100%", borderRadius: 10 }}
+                  loading={loadingCountries}
+                  placement="bottomLeft"
+                  onSearch={handleCountrySearch}
+                  filterOption={false}
+                  optionFilterProp="label"
+                  options={countryOptions}
+                  allowClear
                   notFoundContent={
                     loadingCountries ? (
                       <Spin size="small" style={{ color: "#f00" }} />
@@ -1368,7 +1513,7 @@ export const ContractsUpdate = () => {
           <Divider orientation="left">
             <Space>
               <FileDoneOutlined style={{ color: "#8b0000" }} />
-              <Text strong style={{color: '#8b0000'}}>
+              <Text strong style={{ color: "#8b0000" }}>
                 Документ
               </Text>
             </Space>
@@ -1380,7 +1525,7 @@ export const ContractsUpdate = () => {
                 label={
                   editingContract
                     ? "Загрузить новый документ (опционально)"
-                    : "Загрузить документ (PDF/Word)"
+                    : "Загрузить документ (PDF)"
                 }
                 name="document"
                 valuePropName="fileList"
@@ -1388,16 +1533,14 @@ export const ContractsUpdate = () => {
                 rules={
                   editingContract
                     ? []
-                    : [{ required: true, message: "Загрузите документ" }]
+                    : [{ required: true, message: "Загрузите PDF документ" }]
                 }
                 extra={
                   editingContract && editingContract.document_path ? (
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       Текущий файл:{" "}
                       <Text code style={{ fontSize: 11 }}>
-                        {editingContract.document_path
-                          .split(/[\\/]/)
-                          .pop()}
+                        {editingContract.document_path.split(/[\\/]/).pop()}
                       </Text>
                     </Text>
                   ) : null
@@ -1406,7 +1549,7 @@ export const ContractsUpdate = () => {
                 <Upload.Dragger
                   beforeUpload={() => false}
                   maxCount={1}
-                  accept=".pdf,.doc,.docx"
+                  accept=".pdf"
                   style={{
                     borderRadius: 12,
                     background: "#fafafa",
@@ -1426,7 +1569,7 @@ export const ContractsUpdate = () => {
                     className="ant-upload-hint"
                     style={{ fontSize: 12, color: "#999" }}
                   >
-                    Поддерживаются файлы PDF, DOC, DOCX
+                    Поддерживается только PDF
                   </p>
                 </Upload.Dragger>
               </Form.Item>

@@ -337,9 +337,6 @@ const ApprovalsPage = () => {
     }
   };
 
-  // ============================================================
-  // GTD EXTENSIONS
-  // ============================================================
   const closeReviewModal = () => {
     setIsReviewOpen(false);
     setReviewingGtd(null);
@@ -1039,15 +1036,15 @@ const ApprovalsPage = () => {
               </Text>
             </Space>
             <Space>
-              <Badge
+              {/* <Badge
                 count={permissions.length}
                 showZero
                 style={{ backgroundColor: RED }}
-              >
-                <Tag color="red" style={{ borderRadius: 8 }}>
-                  Всего: {permissions.length}
-                </Tag>
-              </Badge>
+              > */}
+              <Tag color="red" style={{ borderRadius: 8 }}>
+                Всего: {permissions.length}
+              </Tag>
+              {/* </Badge> */}
               <Button
                 danger
                 type="primary"
@@ -1165,7 +1162,7 @@ const ApprovalsPage = () => {
               >
                 Всего: {gtdTotal}
               </Tag>
-              <Button
+              {/* <Button
                 danger
                 icon={<ReloadOutlined />}
                 onClick={() =>
@@ -1181,7 +1178,7 @@ const ApprovalsPage = () => {
                 }}
               >
                 Обновить
-              </Button>
+              </Button> */}
             </Space>
           </div>
 
@@ -1232,9 +1229,6 @@ const ApprovalsPage = () => {
     });
   }
 
-  // ============================================================
-  // RENDER
-  // ============================================================
   return (
     <div>
       <div
@@ -1327,7 +1321,6 @@ const ApprovalsPage = () => {
         }}
       />
 
-      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1369,7 +1362,7 @@ const ApprovalsPage = () => {
           </Button>,
         ].filter(Boolean)}
         width={820}
-        style={{ top: 60 }}
+        style={{ top: 120 }}
         destroyOnHidden
       >
         {detailLoading ? (
@@ -1491,8 +1484,6 @@ const ApprovalsPage = () => {
           </>
         )}
       </Modal>
-
-      {/* ===== МОДАЛКА: РЕШЕНИЕ ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1538,6 +1529,7 @@ const ApprovalsPage = () => {
                 decisionType === "compliance"
                   ? [
                       { value: "approve", label: "Одобрить" },
+                      { value: "revision", label: "На доработку" },
                       { value: "reject", label: "Отклонить" },
                     ]
                   : [
@@ -1576,9 +1568,6 @@ const ApprovalsPage = () => {
         open={isGrantOpen}
         onCancel={() => setIsGrantOpen(false)}
         footer={[
-          <Button key="cancel" danger onClick={() => setIsGrantOpen(false)}>
-            Отмена
-          </Button>,
           <Button
             key="submit"
             type="primary"
@@ -1589,6 +1578,9 @@ const ApprovalsPage = () => {
             style={{ background: RED }}
           >
             Выдать
+          </Button>,
+          <Button key="cancel" danger onClick={() => setIsGrantOpen(false)}>
+            Отмена
           </Button>,
         ]}
         width={520}

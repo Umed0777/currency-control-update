@@ -398,6 +398,10 @@ const ReportsPage = () => {
                       value: "additional_agreements",
                       label: "Доп. соглашения",
                     },
+                    {
+                      value: "payment_orders",
+                      label: "Платёжные поручения",
+                    },
                     { value: "clients", label: "Клиенты" },
                     {
                       value: "client_consolidated",
