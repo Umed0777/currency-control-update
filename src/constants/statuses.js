@@ -40,4 +40,5 @@ export const ENTITY_TYPE_MAP = {
   invoice: { label: "Инвойс", color: "blue" },
   gtd: { label: "ГТД", color: "green" },
   additional_agreement: { label: "Доп. соглашение", color: "purple" },
+  payment_order: {label: "Платежный поручения", color: "yellow"},
 };

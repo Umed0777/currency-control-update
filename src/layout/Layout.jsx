@@ -99,7 +99,7 @@ const Layout = () => {
       <Sider
         collapsed={collapsed}
         trigger={null}
-        width={340}
+        width={320}
         collapsedWidth={80}
         style={{
           position: "fixed",

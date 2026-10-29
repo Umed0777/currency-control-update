@@ -360,7 +360,7 @@ const MyDocuments = () => {
       title: "Дата",
       dataIndex: "document_date",
       key: "document_date",
-      width: 800,
+      width: 940,
       align: "center",
       render: (v) => (
         <Space size={4}>

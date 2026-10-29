@@ -142,7 +142,7 @@ export const useAuthStore = create((set, get) => {
         scheduleTokenRefresh();
 
         if (newRole && newRole !== "pre_auth") {
-          // ✅ Всегда ведём на HomePage
+          //  Всегда ведём на HomePage
           const targetUrl = "/";
 
           setTimeout(() => {

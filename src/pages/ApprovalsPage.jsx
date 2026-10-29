@@ -65,6 +65,7 @@ const ENTITY_TYPE_MAP = {
   invoice: { label: "Инвойс", color: "blue" },
   gtd: { label: "ГТД", color: "green" },
   additional_agreement: { label: "Доп. соглашение", color: "purple" },
+  payment_order: { label: "Платёжное поручение", color: "cyan" },
 };
 
 // === Статусы ===
@@ -135,7 +136,6 @@ const ApprovalsPage = () => {
   const { role, branchId: userBranchId } = useAuthStore();
   const normalizedRole = String(role || "").toLowerCase();
 
-  // ✅ Единый флаг «админ» — учитываем варианты написания
   const isAdmin =
     normalizedRole === "admin" ||
     normalizedRole === "administrator" ||
@@ -429,7 +429,7 @@ const ApprovalsPage = () => {
       title: "Тип",
       dataIndex: "entity_type",
       key: "entity_type",
-      width: 150,
+      width: 180,
       render: (v) => {
         const info = ENTITY_TYPE_MAP[v] || {
           label: v || "—",
@@ -463,20 +463,20 @@ const ApprovalsPage = () => {
         </Text>
       ),
     },
-    {
-      title: "Этап",
-      dataIndex: "stage",
-      key: "stage",
-      width: 180,
-      render: (v) => {
-        const info = STAGE_MAP[v] || { label: v || "—", color: "default" };
-        return (
-          <Tag color={info.color} style={{ borderRadius: 8 }}>
-            {info.label}
-          </Tag>
-        );
-      },
-    },
+    // {
+    //   title: "Этап",
+    //   dataIndex: "stage",
+    //   key: "stage",
+    //   width: 180,
+    //   render: (v) => {
+    //     const info = STAGE_MAP[v] || { label: v || "—", color: "default" };
+    //     return (
+    //       <Tag color={info.color} style={{ borderRadius: 8 }}>
+    //         {info.label}
+    //       </Tag>
+    //     );
+    //   },
+    // },
     {
       title: "Статус",
       dataIndex: "approval_status",
@@ -902,6 +902,10 @@ const ApprovalsPage = () => {
                       value: "additional_agreement",
                       label: "Доп. соглашение",
                     },
+                    {
+                      value: "payment_order",
+                      label: "Платёжное поручение",
+                    },
                   ]}
                 />
               </Col>
@@ -1036,15 +1040,9 @@ const ApprovalsPage = () => {
               </Text>
             </Space>
             <Space>
-              {/* <Badge
-                count={permissions.length}
-                showZero
-                style={{ backgroundColor: RED }}
-              > */}
               <Tag color="red" style={{ borderRadius: 8 }}>
                 Всего: {permissions.length}
               </Tag>
-              {/* </Badge> */}
               <Button
                 danger
                 type="primary"
@@ -1114,12 +1112,6 @@ const ApprovalsPage = () => {
         <Space size={6}>
           <FieldTimeOutlined style={{ color: RED }} />
           <span style={{ color: RED, fontWeight: 600 }}>Продление ГТД</span>
-          {/* {gtdTotal > 0 && (
-            <Badge
-              count={gtdTotal}
-              style={{ backgroundColor: "#fa8c16", boxShadow: "none" }}
-            />
-          )} */}
         </Space>
       ),
       children: (
@@ -1162,23 +1154,6 @@ const ApprovalsPage = () => {
               >
                 Всего: {gtdTotal}
               </Tag>
-              {/* <Button
-                danger
-                icon={<ReloadOutlined />}
-                onClick={() =>
-                  fetchGtdPending(userBranchId, gtdPage, gtdPageSize)
-                }
-                loading={gtdLoading}
-                style={{
-                  borderRadius: 10,
-                  height: 34,
-                  background: RED,
-                  color: "#fff",
-                  border: `1px solid ${RED}`,
-                }}
-              >
-                Обновить
-              </Button> */}
             </Space>
           </div>
 
