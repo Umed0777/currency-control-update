@@ -34,8 +34,6 @@ import {
   FileTextOutlined,
   ClockCircleOutlined,
   WarningOutlined,
-  TeamOutlined,
-  HistoryOutlined,
 } from "@ant-design/icons";
 
 import { useParams, useNavigate } from "react-router-dom";
@@ -267,19 +265,23 @@ const BranchDashboard = () => {
     }
   }, [error, clearError]);
 
-  const handleRowClick = (record) => {
-    const companyId = record.id ?? record.company_id;
-    if (!companyId) return;
-    navigate(`/branches/${branchId}/companies/${companyId}/contracts`);
-  };
+ 
+const handleRowClick = (record) => {
+  const companyId = record.id ?? record.company_id;
+  if (!companyId) return;
+  navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
+    state: { companyName: record.llc || record.name || "" },
+  });
+};
 
-  const handleNotificationClick = (record) => {
-    const companyId = record.company_id ?? record.companyId;
-    if (!companyId) return;
-    setIsNotificationsOpen(false);
-    navigate(`/branches/${branchId}/companies/${companyId}/contracts`);
-  };
-
+const handleNotificationClick = (record) => {
+  const companyId = record.company_id ?? record.companyId;
+  if (!companyId) return;
+  setIsNotificationsOpen(false);
+  navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
+    state: { companyName: record.company_name || "" },
+  });
+};
   const handleOpenNotifications = () => {
     setIsNotificationsOpen(true);
     fetchNotifications(branchId);

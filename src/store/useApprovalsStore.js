@@ -11,6 +11,18 @@ import {
   revokeCurrencyControlPermission,
 } from "../api/approvals.service";
 
+// Все типы документов, которые должны показываться при фильтре "Все типы"
+const ALL_ENTITY_TYPES = [
+  "contract",
+  "invoice",
+  "gtd",
+  "additional_agreement",
+  "payment_order",
+];
+
+// Сколько записей запрашиваем у бэкенда по каждому типу
+const FETCH_LIMIT_PER_TYPE = 200;
+
 const toArray = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
@@ -19,9 +31,13 @@ const toArray = (data) => {
   return [];
 };
 
+const sliceByPage = (all, page, pageSize) =>
+  all.slice((page - 1) * pageSize, page * pageSize);
+
 export const useApprovalsStore = create((set, get) => ({
   // === Список на согласовании ===
-  items: [],
+  allItems: [], // все загруженные записи (объединённые по типам)
+  items: [], // записи текущей страницы
   total: 0,
   page: 1,
   pageSize: 20,
@@ -46,23 +62,73 @@ export const useApprovalsStore = create((set, get) => ({
   permissionsLoading: false,
 
   // ============================================================
-  // СПИСОК НА СОГЛАСОВАНИИ
+  // СПИСОК НА СОГЛАСОВАНИИ (все типы документов)
   // ============================================================
   fetchPending: async (filters = {}) => {
     set({ loading: true, error: null });
     try {
-      const data = await fetchPendingApprovals({
-        page: get().page,
-        page_size: get().pageSize,
-        ...filters,
+      const { stage, entity_type, ...rest } = filters;
+
+      // Если выбран конкретный тип — грузим только его,
+      // если "Все типы" — грузим каждый тип отдельно и объединяем
+      const types = entity_type ? [entity_type] : ALL_ENTITY_TYPES;
+
+      const results = await Promise.allSettled(
+        types.map((type) =>
+          fetchPendingApprovals({
+            page: 1,
+            page_size: FETCH_LIMIT_PER_TYPE,
+            ...rest,
+            ...(stage ? { stage } : {}),
+            entity_type: type,
+          }),
+        ),
+      );
+
+      const merged = [];
+      let firstError = null;
+
+      results.forEach((r, i) => {
+        if (r.status !== "fulfilled") {
+          if (!firstError) firstError = r.reason;
+          return;
+        }
+        toArray(r.value).forEach((x) =>
+          merged.push({ ...x, entity_type: x.entity_type || types[i] }),
+        );
       });
-      const list = toArray(data);
+
+      // Если упали все запросы — показываем ошибку
+      if (merged.length === 0 && firstError) {
+        throw firstError;
+      }
+
+      // Убираем дубли (на случай, если бэкенд игнорирует entity_type)
+      const seen = new Set();
+      const unique = merged.filter((x) => {
+        const key = `${x.entity_type}-${x.entity_id ?? x.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      // Сначала новые
+      unique.sort(
+        (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+      );
+
+      const { page, pageSize } = get();
+      const maxPage = Math.max(1, Math.ceil(unique.length / pageSize));
+      const safePage = Math.min(page, maxPage);
+
       set({
-        items: list,
-        total: data?.total ?? list.length,
+        allItems: unique,
+        items: sliceByPage(unique, safePage, pageSize),
+        total: unique.length,
+        page: safePage,
         loading: false,
       });
-      return list;
+      return unique;
     } catch (err) {
       set({
         loading: false,
@@ -117,7 +183,7 @@ export const useApprovalsStore = create((set, get) => ({
       const result = await submitCurrencyControlDecision(
         entityType,
         id,
-        payload
+        payload,
       );
       set({ submitting: false });
       return result;
@@ -133,11 +199,7 @@ export const useApprovalsStore = create((set, get) => ({
   fetchGtdPending: async (branchId, page = 1, pageSize = 20) => {
     set({ gtdLoading: true, error: null });
     try {
-      const data = await fetchGtdExtensionsPending(
-        branchId,
-        page,
-        pageSize
-      );
+      const data = await fetchGtdExtensionsPending(branchId, page, pageSize);
       const list = toArray(data);
       set({
         gtdItems: list,
@@ -163,7 +225,7 @@ export const useApprovalsStore = create((set, get) => ({
       const result = await reviewGtdExtension(requestId, payload);
       set((state) => ({
         gtdItems: state.gtdItems.filter(
-          (item) => String(item.id) !== String(requestId)
+          (item) => String(item.id) !== String(requestId),
         ),
         submitting: false,
       }));
@@ -215,7 +277,7 @@ export const useApprovalsStore = create((set, get) => ({
       const result = await revokeCurrencyControlPermission(login);
       set((state) => ({
         permissions: state.permissions.filter(
-          (item) => String(item.login) !== String(login)
+          (item) => String(item.login) !== String(login),
         ),
         submitting: false,
       }));
@@ -229,12 +291,20 @@ export const useApprovalsStore = create((set, get) => ({
   // ============================================================
   // Сброс
   // ============================================================
-  setPage: (page) => set({ page }),
-  setPageSize: (size) => set({ pageSize: size }),
+  // Пагинация идёт по уже загруженному списку
+  setPage: (page) => {
+    const { allItems, pageSize } = get();
+    set({ page, items: sliceByPage(allItems, page, pageSize) });
+  },
+  setPageSize: (size) => {
+    const { allItems, page } = get();
+    set({ pageSize: size, items: sliceByPage(allItems, page, size) });
+  },
   clearError: () => set({ error: null }),
   clearDetail: () => set({ detail: null, detailError: null }),
   clear: () =>
     set({
+      allItems: [],
       items: [],
       total: 0,
       page: 1,

@@ -59,7 +59,7 @@ const STAGE_MAP = {
   revision: { label: "На доработке", color: "orange" },
 };
 
-// === Типы документов ===
+// === Типы документов (для отображения) ===
 const ENTITY_TYPE_MAP = {
   contract: { label: "Контракт", color: "red" },
   invoice: { label: "Инвойс", color: "blue" },
@@ -67,6 +67,15 @@ const ENTITY_TYPE_MAP = {
   additional_agreement: { label: "Доп. соглашение", color: "purple" },
   payment_order: { label: "Платёжное поручение", color: "cyan" },
 };
+
+// === Только эти типы показываем на странице согласования ===
+const ALLOWED_ENTITY_TYPES = ["gtd", "payment_order"];
+
+// === Варианты фильтра «Тип документа» ===
+const ENTITY_TYPE_FILTER_OPTIONS = [
+  { value: "gtd", label: "ГТД" },
+  { value: "payment_order", label: "Платёжное поручение" },
+];
 
 // === Статусы ===
 const STATUS_MAP = {
@@ -93,6 +102,15 @@ const GTD_EXTENSION_STATUS_MAP = {
   },
   approved: { label: "Одобрено", color: "green" },
   rejected: { label: "Отклонено", color: "red" },
+};
+
+const DECISION_MAP = {
+  approve: { label: "Принято", color: "green" },
+  approved: { label: "Принято", color: "green" },
+  accepted: { label: "Принято", color: "green" },
+  reject: { label: "Отклонено", color: "red" },
+  rejected: { label: "Отклонено", color: "red" },
+  revision: { label: "На доработке", color: "orange" },
 };
 
 const formatDateTime = (v) => {
@@ -129,6 +147,13 @@ const formatMoney = (v, currency) => {
 const getPersonName = (p) => {
   if (!p) return "";
   return [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
+};
+
+// Вспомогательная функция для отображения статуса в модалке
+const renderDecision = (decision) => {
+  if (!decision) return "—";
+  const info = DECISION_MAP[decision] || { label: decision, color: "default" };
+  return <Tag color={info.color} style={{ borderRadius: 6, margin: 0 }}>{info.label}</Tag>;
 };
 
 const ApprovalsPage = () => {
@@ -195,6 +220,11 @@ const ApprovalsPage = () => {
   const [decisionForm] = Form.useForm();
   const [grantForm] = Form.useForm();
   const [reviewForm] = Form.useForm();
+
+  // Показываем только ГТД и платёжные поручения
+  const visibleItems = (Array.isArray(items) ? items : []).filter((r) =>
+    ALLOWED_ENTITY_TYPES.includes(r.entity_type),
+  );
 
   // ============================================================
   // ЭФФЕКТЫ
@@ -463,20 +493,6 @@ const ApprovalsPage = () => {
         </Text>
       ),
     },
-    // {
-    //   title: "Этап",
-    //   dataIndex: "stage",
-    //   key: "stage",
-    //   width: 180,
-    //   render: (v) => {
-    //     const info = STAGE_MAP[v] || { label: v || "—", color: "default" };
-    //     return (
-    //       <Tag color={info.color} style={{ borderRadius: 8 }}>
-    //         {info.label}
-    //       </Tag>
-    //     );
-    //   },
-    // },
     {
       title: "Статус",
       dataIndex: "approval_status",
@@ -881,9 +897,9 @@ const ApprovalsPage = () => {
                   Тип документа:
                 </Text>
                 <Select
-                  value={entityTypeFilter}
+                  value={entityTypeFilter || undefined}
                   onChange={(v) => {
-                    setEntityTypeFilter(v);
+                    setEntityTypeFilter(v || "");
                     setPage(1);
                   }}
                   style={{
@@ -892,21 +908,8 @@ const ApprovalsPage = () => {
                     border: `1px solid ${RED}`,
                   }}
                   allowClear
-                  placeholder="Все типы"
-                  options={[
-                    { value: "", label: "Все типы" },
-                    { value: "contract", label: "Контракт" },
-                    { value: "invoice", label: "Инвойс" },
-                    { value: "gtd", label: "ГТД" },
-                    {
-                      value: "additional_agreement",
-                      label: "Доп. соглашение",
-                    },
-                    {
-                      value: "payment_order",
-                      label: "Платёжное поручение",
-                    },
-                  ]}
+                  placeholder="ГТД и платёжные поручения"
+                  options={ENTITY_TYPE_FILTER_OPTIONS}
                 />
               </Col>
             </Row>
@@ -948,12 +951,12 @@ const ApprovalsPage = () => {
                   color: RED,
                 }}
               >
-                Всего: {total}
+                Всего: {entityTypeFilter ? total : visibleItems.length}
               </Tag>
             </div>
 
             <div style={{ padding: 20 }}>
-              {loading && items.length === 0 ? (
+              {loading && visibleItems.length === 0 ? (
                 <div
                   style={{
                     minHeight: 300,
@@ -972,12 +975,12 @@ const ApprovalsPage = () => {
                   }
                   loading={loading}
                   columns={pendingColumns}
-                  dataSource={items}
+                  dataSource={visibleItems}
                   scroll={{ x: "max-content" }}
                   pagination={{
                     current: page,
                     pageSize: pageSize,
-                    total: total,
+                    total: entityTypeFilter ? total : undefined,
                     showSizeChanger: false,
                     onChange: (p) => setPage(p),
                   }}
@@ -1420,7 +1423,7 @@ const ApprovalsPage = () => {
                 <Divider style={{ margin: "16px 0" }}>Комплаенс</Divider>
                 <Descriptions column={1} size="small" bordered>
                   <Descriptions.Item label="Решение">
-                    {detail.compliance_decision}
+                    {renderDecision(detail.compliance_decision)}
                   </Descriptions.Item>
                   <Descriptions.Item label="Комментарий">
                     {detail.compliance_comment || "—"}
@@ -1442,7 +1445,7 @@ const ApprovalsPage = () => {
                 </Divider>
                 <Descriptions column={1} size="small" bordered>
                   <Descriptions.Item label="Решение">
-                    {detail.currency_control_decision}
+                    {renderDecision(detail.currency_control_decision)}
                   </Descriptions.Item>
                   <Descriptions.Item label="Комментарий">
                     {detail.currency_control_comment || "—"}
@@ -1503,7 +1506,7 @@ const ApprovalsPage = () => {
               options={
                 decisionType === "compliance"
                   ? [
-                      { value: "approve", label: "Одобрить" },
+                      { value: "approve", label: "Принято" },
                       { value: "revision", label: "На доработку" },
                       { value: "reject", label: "Отклонить" },
                     ]

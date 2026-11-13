@@ -2,7 +2,6 @@ import { create } from "zustand";
 import {
   loginRequest,
   logoutRequest,
-  refreshTokenRequest,
   requestAccess as requestAccessApi,
   getRoles as getRolesApi,
   getAccessRequests as getAccessRequestsApi,
@@ -25,6 +24,7 @@ const extractError = (error, fallback = "Произошла ошибка") => {
 const storedSession = JSON.parse(localStorage.getItem("session") || "null");
 
 export const useAuthStore = create((set, get) => {
+  // Слушаем события обновления токена
   if (typeof window !== "undefined") {
     window.addEventListener("auth:refreshed", (e) => {
       const data = e.detail || {};
@@ -33,10 +33,7 @@ export const useAuthStore = create((set, get) => {
         refreshToken: data.refresh_token ?? get().refreshToken,
         session: data.session ?? get().session,
         role: data.session?.role ?? get().role,
-        branchId:
-          data.session?.branch_id !== undefined
-            ? data.session.branch_id
-            : get().branchId,
+        branchId: data.session?.branch_id !== undefined ? data.session.branch_id : get().branchId,
       });
     });
 
@@ -59,9 +56,7 @@ export const useAuthStore = create((set, get) => {
     refreshToken: localStorage.getItem("refresh_token"),
     session: JSON.parse(localStorage.getItem("session") || "null"),
     role: localStorage.getItem("role"),
-    branchId: localStorage.getItem("branch_id")
-      ? Number(localStorage.getItem("branch_id"))
-      : null,
+    branchId: localStorage.getItem("branch_id") ? Number(localStorage.getItem("branch_id")) : null,
     roles: [],
     accessRequests: [],
     accessRequestsHistory: [],
@@ -73,10 +68,8 @@ export const useAuthStore = create((set, get) => {
       try {
         const data = await loginRequest(login, password);
 
-        if (data.access_token)
-          localStorage.setItem("access_token", data.access_token);
-        if (data.refresh_token)
-          localStorage.setItem("refresh_token", data.refresh_token);
+        if (data.access_token) localStorage.setItem("access_token", data.access_token);
+        if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token);
         localStorage.setItem("login", data.login || login);
 
         const role = data.role || data.session?.role || null;
@@ -86,8 +79,7 @@ export const useAuthStore = create((set, get) => {
         if (branchId !== null && branchId !== undefined) {
           localStorage.setItem("branch_id", String(branchId));
         }
-        if (data.session)
-          localStorage.setItem("session", JSON.stringify(data.session));
+        if (data.session) localStorage.setItem("session", JSON.stringify(data.session));
 
         set({
           user: data,
@@ -99,73 +91,13 @@ export const useAuthStore = create((set, get) => {
           loading: false,
           error: null,
         });
+        
         scheduleTokenRefresh();
-
         return { success: true, data };
       } catch (error) {
         const message = extractError(error, "Неверный логин или пароль");
         set({ loading: false, error: message });
         return { success: false, error: message };
-      }
-    },
-
-    refreshSession: async () => {
-      try {
-        const refreshToken = localStorage.getItem("refresh_token");
-        if (!refreshToken) throw new Error("Нет refresh токена");
-
-        const data = await refreshTokenRequest(refreshToken);
-
-        const newRole = data.role || data.session?.role || null;
-        const newBranchId = data.branch_id ?? data.session?.branch_id ?? null;
-
-        if (data.access_token)
-          localStorage.setItem("access_token", data.access_token);
-        if (data.refresh_token)
-          localStorage.setItem("refresh_token", data.refresh_token);
-        if (data.session)
-          localStorage.setItem("session", JSON.stringify(data.session));
-        if (newRole) localStorage.setItem("role", newRole);
-        if (newBranchId !== null && newBranchId !== undefined) {
-          localStorage.setItem("branch_id", String(newBranchId));
-        }
-
-        set({
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          session: data.session,
-          role: newRole,
-          branchId: newBranchId,
-          loading: false,
-        });
-
-        scheduleTokenRefresh();
-
-        if (newRole && newRole !== "pre_auth") {
-          //  Всегда ведём на HomePage
-          const targetUrl = "/";
-
-          setTimeout(() => {
-            window.location.replace(targetUrl);
-          }, 100);
-
-          return {
-            success: true,
-            message: "Заявка одобрена! Входим в систему...",
-          };
-        }
-
-        return { success: false, message: "Заявка еще на рассмотрении" };
-      } catch (error) {
-        console.error("Refresh session error:", error);
-        const status = error.response?.status;
-
-        if (status === 400 || status === 401 || status === 403) {
-          localStorage.clear();
-          window.location.replace("/login");
-        }
-
-        return { success: false, message: "Ошибка проверки статуса" };
       }
     },
 
@@ -186,11 +118,7 @@ export const useAuthStore = create((set, get) => {
       set({ loading: true, error: null });
       try {
         const data = await getRolesApi();
-        const rolesData = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
+        const rolesData = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
         set({ roles: rolesData, loading: false, error: null });
         return { success: true, data: rolesData };
       } catch (error) {
@@ -204,11 +132,7 @@ export const useAuthStore = create((set, get) => {
       set({ loading: true, error: null });
       try {
         const data = await getAccessRequestsApi();
-        const requestsData = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
+        const requestsData = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
         set({ accessRequests: requestsData, loading: false, error: null });
         return { success: true, data: requestsData };
       } catch (error) {
@@ -222,22 +146,11 @@ export const useAuthStore = create((set, get) => {
       set({ loading: true, error: null });
       try {
         const data = await getAccessRequestsHistoryApi();
-        const historyData = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
-        set({
-          accessRequestsHistory: historyData,
-          loading: false,
-          error: null,
-        });
+        const historyData = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        set({ accessRequestsHistory: historyData, loading: false, error: null });
         return { success: true, data: historyData };
       } catch (error) {
-        const message = extractError(
-          error,
-          "Не удалось загрузить историю запросов"
-        );
+        const message = extractError(error, "Не удалось загрузить историю запросов");
         set({ loading: false, error: message });
         return { success: false, error: message };
       }
@@ -248,9 +161,7 @@ export const useAuthStore = create((set, get) => {
       try {
         const data = await approveAccessRequestApi(requestId);
         set((state) => ({
-          accessRequests: state.accessRequests.filter(
-            (item) => String(item.id) !== String(requestId)
-          ),
+          accessRequests: state.accessRequests.filter((item) => String(item.id) !== String(requestId)),
           loading: false,
           error: null,
         }));
@@ -267,9 +178,7 @@ export const useAuthStore = create((set, get) => {
       try {
         const data = await rejectAccessRequestApi(requestId);
         set((state) => ({
-          accessRequests: state.accessRequests.filter(
-            (item) => String(item.id) !== String(requestId)
-          ),
+          accessRequests: state.accessRequests.filter((item) => String(item.id) !== String(requestId)),
           loading: false,
           error: null,
         }));

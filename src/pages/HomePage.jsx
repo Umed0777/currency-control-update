@@ -35,6 +35,27 @@ import { useAccessRequestsStore } from "../store/useAccessRequestsStore";
 
 const { Title, Text, Paragraph } = Typography;
 
+// ---------- Запоминаем показанные уведомления (переживает выход и перезагрузку) ----------
+const SHOWN_KEY_PREFIX = "shown_access_notifications";
+
+const shownKey = (login) => `${SHOWN_KEY_PREFIX}_${login || "anonymous"}`;
+
+const loadShown = (login) => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(shownKey(login)) || "[]"));
+  } catch {
+    return new Set();
+  }
+};
+
+const saveShown = (login, set) => {
+  try {
+    localStorage.setItem(shownKey(login), JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+};
+
 const HomePage = () => {
   const navigate = useNavigate();
 
@@ -85,7 +106,11 @@ const HomePage = () => {
     normalizedRole === "currency_control" ||
     normalizedRole === "branch_head";
 
-  const shownIdsRef = useRef(new Set());
+  // Уже показанные заявки (из localStorage, отдельно для каждого пользователя)
+  const shownIdsRef = useRef(null);
+  if (shownIdsRef.current === null) {
+    shownIdsRef.current = loadShown(user?.login);
+  }
 
   const roleLabel = useMemo(() => {
     const map = {
@@ -128,11 +153,22 @@ const HomePage = () => {
     if (!isAdminOrCompliance) return;
     if (!accessNotifications || accessNotifications.length === 0) return;
 
+    // Если пользователь сменился — подгружаем его список показанных заявок
+    shownIdsRef.current = new Set([
+      ...shownIdsRef.current,
+      ...loadShown(user?.login),
+    ]);
+
     accessNotifications.forEach((item) => {
+      // Не показываем уже принятые / отклонённые заявки
+      if (item.status && item.status !== "pending") return;
+
       const key = String(item.request_id ?? item.id ?? item.login);
       if (!key || shownIdsRef.current.has(key)) return;
 
+      // Запоминаем сразу, чтобы после выхода и входа заявка не появилась снова
       shownIdsRef.current.add(key);
+      saveShown(user?.login, shownIdsRef.current);
 
       notification.info({
         message: "Новая заявка на доступ",

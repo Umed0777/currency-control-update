@@ -274,7 +274,6 @@ const AdditionalAgreementInvoices = () => {
     }
   };
 
-  // ============ КОЛОНКИ ТАБЛИЦЫ ИНВОЙСОВ ============
   const columns = [
     {
       title: "Номер инвойса",

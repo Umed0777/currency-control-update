@@ -188,7 +188,7 @@
 .red-table .ant-table-body::-webkit-scrollbar,
 .red-table .ant-table-content::-webkit-scrollbar,
 .red-table .ant-table-header::-webkit-scrollbar {
-  height: 6px;  
+  height: 15px !important;  
   width: 6px; 
 }
 
@@ -215,7 +215,7 @@
 .red-table .ant-table-body,
 .red-table .ant-table-content,
 .red-table .ant-table-header {
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: #8b0000 #fff5f5;
 }
 
@@ -277,4 +277,20 @@
 
 .ant-form-item-label > label {
   color: #8b0000 !important;
+}
+.custom-currency-select .ant-select-selector {
+  border-radius: 10px !important;
+  border: 1px solid #d9d9d9 !important;
+  transition: all 0.3s ease;
+}
+
+/* Hover */
+.custom-currency-select:hover .ant-select-selector {
+  border-color: #8b0000 !important;
+}
+
+/* Active / Focus */
+.custom-currency-select.ant-select-focused .ant-select-selector {
+  border-color: #8b0000 !important;
+  box-shadow: 0 0 0 2px rgba(139, 0, 0, 0.1) !important;
 }

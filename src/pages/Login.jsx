@@ -25,7 +25,6 @@ const Login = () => {
       return;
     }
 
-    // ✅ Всегда идём на HomePage
     navigate("/");
   };
 

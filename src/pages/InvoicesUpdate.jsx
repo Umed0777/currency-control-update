@@ -164,7 +164,6 @@ export const InvoicesUpdate = () => {
 
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
-  // ✅ ФИЛЬТР: показываем ТОЛЬКО инвойсы контракта (без доп. соглашений)
   const contractInvoices = agreementId
     ? safeInvoices
     : safeInvoices.filter(
@@ -262,7 +261,6 @@ export const InvoicesUpdate = () => {
           : "",
       currency: record.currency || "USD",
       hs_code: record.hs_code || "",
-      // ✅ Поля отправителя
       sender_name: record.sender_name || "",
       sender_bank: record.sender_bank || "",
       sender_country: record.sender_country || "",
@@ -297,7 +295,6 @@ export const InvoicesUpdate = () => {
       formData.append("currency", String(values.currency || ""));
       formData.append("hs_code", String(values.hs_code || "").trim());
 
-      // ✅ Поля отправителя
       formData.append("sender_name", String(values.sender_name || "").trim());
       formData.append("sender_bank", String(values.sender_bank || "").trim());
       formData.append(
@@ -640,7 +637,6 @@ export const InvoicesUpdate = () => {
 
   return (
     <div>
-      {/* ===== Заголовок ===== */}
       <div
         style={{
           display: "flex",
@@ -821,8 +817,6 @@ export const InvoicesUpdate = () => {
           )}
         </div>
       </Card>
-
-      {/* ===== Модалка инвойса ===== */}
       <Modal
         title={
           <Space>
@@ -985,8 +979,6 @@ export const InvoicesUpdate = () => {
               </Form.Item>
             </Col>
           </Row>
-
-          {/* ===== ✅ Отправитель ===== */}
           <Divider orientation="left">
             <Space>
               <SendOutlined style={{ color: "#8b0000" }} />
@@ -1048,8 +1040,6 @@ export const InvoicesUpdate = () => {
               </Form.Item>
             </Col>
           </Row>
-
-          {/* ===== Документ ===== */}
           <Divider orientation="left">
             <Space>
               <FileDoneOutlined style={{ color: "#8b0000" }} />

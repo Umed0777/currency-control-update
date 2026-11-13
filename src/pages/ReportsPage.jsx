@@ -394,14 +394,6 @@ const ReportsPage = () => {
                     { value: "contracts", label: "Контракты" },
                     { value: "invoices", label: "Инвойсы" },
                     { value: "gtd", label: "ГТД" },
-                    {
-                      value: "additional_agreements",
-                      label: "Доп. соглашения",
-                    },
-                    {
-                      value: "payment_orders",
-                      label: "Платёжные поручения",
-                    },
                     { value: "clients", label: "Клиенты" },
                     {
                       value: "client_consolidated",
