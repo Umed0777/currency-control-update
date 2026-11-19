@@ -195,6 +195,7 @@ const getStatusLabel = (status) => {
     gtd_deadline: "Дедлайн ГТД",
     closed: "Закрыт",
     active: "Активен",
+    overdue: "Просрочен",          // ← добавлено
   };
   return map[status] || status;
 };
@@ -265,23 +266,23 @@ const BranchDashboard = () => {
     }
   }, [error, clearError]);
 
- 
-const handleRowClick = (record) => {
-  const companyId = record.id ?? record.company_id;
-  if (!companyId) return;
-  navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
-    state: { companyName: record.llc || record.name || "" },
-  });
-};
+  const handleRowClick = (record) => {
+    const companyId = record.id ?? record.company_id;
+    if (!companyId) return;
+    navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
+      state: { companyName: record.llc || record.name || "" },
+    });
+  };
 
-const handleNotificationClick = (record) => {
-  const companyId = record.company_id ?? record.companyId;
-  if (!companyId) return;
-  setIsNotificationsOpen(false);
-  navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
-    state: { companyName: record.company_name || "" },
-  });
-};
+  const handleNotificationClick = (record) => {
+    const companyId = record.company_id ?? record.companyId;
+    if (!companyId) return;
+    setIsNotificationsOpen(false);
+    navigate(`/branches/${branchId}/companies/${companyId}/contracts`, {
+      state: { companyName: record.company_name || "" },
+    });
+  };
+
   const handleOpenNotifications = () => {
     setIsNotificationsOpen(true);
     fetchNotifications(branchId);
@@ -454,10 +455,7 @@ const handleNotificationClick = (record) => {
       try {
         await fetchDashboard(branchId);
       } catch (refreshErr) {
-        console.warn(
-          "Не удалось обновить список после редактирования:",
-          refreshErr
-        );
+        console.warn("Не удалось обновить список после редактирования:", refreshErr);
       }
       message.success("Карточка обновлена");
       setIsEditOpen(false);
@@ -588,10 +586,7 @@ const handleNotificationClick = (record) => {
       key: "company_name",
       width: 180,
       render: (v, record) => (
-        <Text
-          style={{ fontSize: 13 }}
-          ellipsis={{ tooltip: v || record.title }}
-        >
+        <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v || record.title }}>
           {v || record.title || "—"}
         </Text>
       ),
@@ -613,7 +608,7 @@ const handleNotificationClick = (record) => {
             margin: 0,
           }}
         >
-          {v || "—"}
+          {getStatusLabel(v) || "—"}
         </Tag>
       ),
     },
@@ -714,10 +709,7 @@ const handleNotificationClick = (record) => {
       key: "inn",
       width: 160,
       render: (v) => (
-        <Text
-          type="secondary"
-          style={{ fontSize: 13, fontFamily: "monospace" }}
-        >
+        <Text type="secondary" style={{ fontSize: 13, fontFamily: "monospace" }}>
           {v || "—"}
         </Text>
       ),
@@ -758,11 +750,7 @@ const handleNotificationClick = (record) => {
           <Space size={6}>
             <Avatar
               size={20}
-              style={{
-                background: "#8b0000",
-                fontSize: 10,
-                marginRight: 10
-              }}
+              style={{ background: "#8b0000", fontSize: 10, marginRight: 10 }}
             >
               {String(v || "?")
                 .charAt(0)
@@ -840,9 +828,7 @@ const handleNotificationClick = (record) => {
                       <Tooltip title="Удалить">
                         <Button
                           type="text"
-                          icon={
-                            <DeleteOutlined style={{ color: "#cf1322" }} />
-                          }
+                          icon={<DeleteOutlined style={{ color: "#cf1322" }} />}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </Tooltip>
@@ -856,25 +842,26 @@ const handleNotificationClick = (record) => {
       : []),
   ];
 
- const renderSearchTypeButton = (value, label) => {
-  return (
-    <Button
-      key={value}
-      danger
-      type="primary"
-      onClick={() => setSearchType(value)}
-      style={{
-        borderRadius: 10,
-        fontWeight: 600,
-        background: "#8b0000",
-        border: "none",
-        boxShadow: "0 6px 16px rgba(230,0,38,0.28)",
-      }}
-    >
-      {label}
-    </Button>
-  );
-};
+  const renderSearchTypeButton = (value, label) => {
+    return (
+      <Button
+        key={value}
+        danger
+        type="primary"
+        onClick={() => setSearchType(value)}
+        style={{
+          borderRadius: 10,
+          fontWeight: 600,
+          background: "#8b0000",
+          border: "none",
+          boxShadow: "0 6px 16px rgba(230,0,38,0.28)",
+        }}
+      >
+        {label}
+      </Button>
+    );
+  };
+
   return (
     <div>
       <div
@@ -898,8 +885,7 @@ const handleNotificationClick = (record) => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // ...redGradientBg,
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(230,0,38,0.28)",
               flexShrink: 0,
             }}
@@ -907,10 +893,7 @@ const handleNotificationClick = (record) => {
             <BankOutlined style={{ fontSize: 16, color: "#fff" }} />
           </div>
           <div>
-            <Title
-              level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
-            >
+            <Title level={3} style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}>
               {branch ? ` ${branch.name}` : ""}
             </Title>
             <Space size={10} style={{ marginTop: 4 }}>
@@ -920,7 +903,7 @@ const handleNotificationClick = (record) => {
               <Tag
                 color="#8b0000"
                 style={{
-                  color: '#8b0000',
+                  color: "#8b0000",
                   borderRadius: 8,
                   padding: "1px 10px",
                   fontWeight: 600,
@@ -938,16 +921,19 @@ const handleNotificationClick = (record) => {
             count={notificationsTotal}
             showZero={false}
             overflowCount={99}
-            style={{
-              backgroundColor: "#8b0000",
-              boxShadow: "0 0 0 1px #fff",
-            }}
+            style={{ backgroundColor: "#8b0000", boxShadow: "0 0 0 1px #fff" }}
           >
             <Button
               danger
               icon={<BellOutlined />}
               onClick={handleOpenNotifications}
-              style={{ borderRadius: 12, height: 35, border: '#8b0000', background: '#8b0000', color: '#fff' }}
+              style={{
+                borderRadius: 12,
+                height: 35,
+                border: "#8b0000",
+                background: "#8b0000",
+                color: "#fff",
+              }}
             >
               Уведомления
             </Button>
@@ -958,7 +944,13 @@ const handleNotificationClick = (record) => {
               type="primary"
               icon={<PlusOutlined />}
               onClick={openCreate}
-              style={{ borderRadius: 12, height: 35, border: '#8b0000', background: '#8b0000', color: '#fff' }}
+              style={{
+                borderRadius: 12,
+                height: 35,
+                border: "#8b0000",
+                background: "#8b0000",
+                color: "#fff",
+              }}
             >
               Создать компанию
             </Button>
@@ -966,7 +958,7 @@ const handleNotificationClick = (record) => {
           <Button
             danger
             onClick={() => navigate(-1)}
-            style={{ borderRadius: 12, height: 35, }}
+            style={{ borderRadius: 12, height: 35 }}
           >
             Назад
           </Button>
@@ -984,7 +976,7 @@ const handleNotificationClick = (record) => {
       >
         <Space align="center" size={10} style={{ marginBottom: 16 }}>
           <FilterOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-          <Text strong style={{ fontSize: 15, color: "#8b0000", }}>
+          <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
             Поиск
           </Text>
         </Space>
@@ -1049,8 +1041,8 @@ const handleNotificationClick = (record) => {
               <Button
                 onClick={handleReset}
                 style={{
-                  background: '#8b0000',
-                  color: '#fff',
+                  background: "#8b0000",
+                  color: "#fff",
                   border: "#8b0000",
                   flex: 1,
                   minWidth: 0,
@@ -1064,14 +1056,12 @@ const handleNotificationClick = (record) => {
           </Col>
         </Row>
 
-        <Text
-          type="secondary"
-          style={{ display: "block", marginTop: 10, fontSize: 12 }}
-        >
+        <Text type="secondary" style={{ display: "block", marginTop: 10, fontSize: 12 }}>
           Выберите поле поиска (Название / ИНН / Сумма), введите значение и
           нажмите «Поиск».
         </Text>
       </Card>
+
       <Card
         style={{
           borderRadius: 18,
@@ -1094,7 +1084,7 @@ const handleNotificationClick = (record) => {
         >
           <Space size={10}>
             <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: "#8b0000", }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Компании филиала
             </Text>
           </Space>
@@ -1158,9 +1148,7 @@ const handleNotificationClick = (record) => {
                 emptyText: (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={
-                      <span style={{ color: "#999" }}>Компаний пока нет</span>
-                    }
+                    description={<span style={{ color: "#999" }}>Компаний пока нет</span>}
                   />
                 ),
               }}
@@ -1322,9 +1310,11 @@ const handleNotificationClick = (record) => {
           />
         )}
       </Modal>
+
+      {/* ===== МОДАЛКА СОЗДАНИЯ КОМПАНИИ ===== */}
       <Modal
         title={
-          <span style={{ fontWeight: 700, color: '#8b0000' }}>
+          <span style={{ fontWeight: 700, color: "#8b0000" }}>
             Создать компанию
           </span>
         }
@@ -1345,7 +1335,7 @@ const handleNotificationClick = (record) => {
             icon={<CheckOutlined />}
             loading={submitting}
             onClick={handleCreateSubmit}
-            style={{ borderRadius: 10, background: '#8b0000',}}
+            style={{ borderRadius: 10, background: "#8b0000" }}
           >
             Сохранить
           </Button>,
@@ -1355,7 +1345,12 @@ const handleNotificationClick = (record) => {
             icon={<CloseOutlined />}
             disabled={submitting}
             onClick={handleCreateCancel}
-            style={{ borderRadius: 10, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
+            style={{
+              borderRadius: 10,
+              background: "#8b0000",
+              color: "#fff",
+              border: "1px solid #8b0000",
+            }}
           >
             Отмена
           </Button>,

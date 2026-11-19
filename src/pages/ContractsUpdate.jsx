@@ -52,6 +52,8 @@ import {
   CreditCardOutlined,
   SendOutlined,
   FilePdfOutlined,
+  FieldTimeOutlined,
+  EyeOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -61,11 +63,16 @@ import { useInvoiceStore } from "../store/useInvoiceStore";
 import { useGtdStore } from "../store/useGtdStore";
 import { usePaymentOrderStore } from "../store/usePaymentOrderStore";
 import { useActStore } from "../store/useActStore";
-import { useAdditionalAgreementsStore } from "../store/useAdditionalAgreementsStore"; // 👈 доп. соглашения
+import { useAdditionalAgreementsStore } from "../store/useAdditionalAgreementsStore";
 import { useAuthStore } from "../store/useAuth";
 import { useBranchDashboardStore } from "../store/useBranchDashboard";
+import { useDocPermissions } from "../store/useDocPermissions";
 import { searchCountries, searchCurrencies } from "../api/dictionary.service";
 import DocumentLink from "../pages/DocumentLink";
+import {
+  GtdExtendModal,
+  GtdExtensionHistoryModal,
+} from "../pages/GtdExtensionModals";
 
 const { Title, Text } = Typography;
 
@@ -97,11 +104,17 @@ const NO_ANIMATION_CSS = `
 .red-table .ant-table-cell {
   padding: 4px 8px !important;
 }
-`;
 
-const CAN_CREATE_EDIT = ["admin", "compliance", "operator"];
-const CAN_EDIT = ["admin", "compliance"];
-const CAN_DELETE = ["admin", "compliance", "currency_control"];
+/* Каждый контракт отделён жирной линией сверху */
+.red-table .contract-row > td {
+  border-top: 3px solid #8b0000 !important;
+}
+
+/* Каждый инвойс отделён красной линией сверху */
+.red-table .invoice-row > td {
+  border-top: 4px solid #8b0000 !important;
+}
+`;
 
 const STATUS_MAP = {
   draft: { label: "Черновик", color: "default" },
@@ -242,7 +255,7 @@ const decisionLine = (label, decision, comment) => {
 
   // Принудительно задаем нужные тексты для Комплаенса и Вал. контроля, если решение положительное
   const isApproved = ["approve", "approved", "accepted"].includes(decision);
-  
+
   if (isApproved) {
     if (label === "Комплаенс") {
       info = { label: "Принято", color: "green" };
@@ -275,7 +288,7 @@ const decisionLine = (label, decision, comment) => {
   );
 };
 const approvalCell = (r) => (
-  <Space direction="vertical" size={6}>
+  <Space orientation="vertical" size={6}>
     {statusTag(APPROVAL_STATUS_MAP, r.approval_status)}
     {decisionLine("Комплаенс", r.compliance_decision, r.compliance_comment)}
     {decisionLine(
@@ -1286,6 +1299,18 @@ const LoadingText = () => (
   </div>
 );
 
+// Красная разделительная линия между разделами внутри инвойса
+const SectionHr = () => (
+  <hr
+    style={{
+      width: "100%",
+      border: "none",
+      borderTop: `2px solid ${RED}`,
+      margin: 0,
+    }}
+  />
+);
+
 // ---------- Сумма и остаток доп. соглашений (в колонке «Сумма» контракта) ----------
 const AgreementsSum = ({ contractId, currency }) => {
   const { branchId, companyId } = useContext(Ctx);
@@ -1351,7 +1376,7 @@ const AgreementNumbers = ({ contractId }) => {
   if (!list.length) return <Text type="secondary">—</Text>;
 
   return (
-    <Space direction="vertical" size={2}>
+    <Space orientation="vertical" size={2}>
       {list.map((a, i) => (
         <Tag
           key={a.id ?? i}
@@ -1374,6 +1399,10 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
   const [loadingPo, setLoadingPo] = useState(true);
   const [gtdModal, setGtdModal] = useState(null);
   const [poModal, setPoModal] = useState(null);
+
+  // Состояния для продления срока ГТД
+  const [extendModal, setExtendModal] = useState(null); // { gtd }
+  const [historyModal, setHistoryModal] = useState(null); // { gtd }
 
   // Состояния для Актов
   const { acts, fetchActsByInvoice, deleteAct } = useActStore();
@@ -1439,6 +1468,10 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
   }, [loadGtd, loadPo, loadActs]);
 
   const deleteGtd = async (id) => {
+    if (!perms.del) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await useGtdStore
         .getState()
@@ -1451,6 +1484,10 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
   };
 
   const deletePo = async (id) => {
+    if (!perms.del) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await usePaymentOrderStore
         .getState()
@@ -1463,6 +1500,10 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
   };
 
   const handleDeleteAct = async (id) => {
+    if (!perms.del) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await deleteAct(branchId, companyId, contractId, id);
       message.success("Акт удалён в корзину");
@@ -1475,26 +1516,73 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
   const showActions = perms.edit || perms.del;
 
   const gtdColumns = [
-    ...(showActions
-      ? [
-          {
-            title: "Действия",
-            key: "actions",
-            width: 150,
-            align: "center",
-            render: (_, r) => (
-              <RowActions
-                deleteTitle="Удалить ГТД?"
-                onEdit={(e) => {
-                  e.stopPropagation();
-                  setGtdModal({ record: r });
-                }}
-                onDelete={() => deleteGtd(r.id)}
-              />
-            ),
-          },
-        ]
-      : []),
+    // Колонка «Действия» ГТД показывается всегда (есть «Продления» для всех)
+    {
+      title: "Действия",
+      key: "actions",
+      width: 330,
+      align: "center",
+      render: (_, r) => (
+        <RowActions
+          deleteTitle="Удалить ГТД?"
+          onEdit={(e) => {
+            e.stopPropagation();
+            setGtdModal({ record: r });
+          }}
+          onDelete={() => deleteGtd(r.id)}
+          extra={
+            <>
+              {perms.create && (
+                <Tooltip title="Подать заявку на продление срока ГТД">
+                  <Button
+                    size="small"
+                    type="text"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExtendModal({ gtd: r });
+                    }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      height: "auto",
+                      padding: "4px 8px",
+                    }}
+                  >
+                    <FieldTimeOutlined style={{ color: RED, fontSize: 18 }} />
+                    <span style={{ fontSize: 12, color: RED, marginTop: 4 }}>
+                      Продлить
+                    </span>
+                  </Button>
+                </Tooltip>
+              )}
+              <Tooltip title="Показать продления ГТД полностью">
+                <Button
+                  size="small"
+                  type="text"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHistoryModal({ gtd: r });
+                  }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    height: "auto",
+                    padding: "4px 8px",
+                  }}
+                >
+                  <EyeOutlined style={{ color: RED, fontSize: 18 }} />
+                  <span style={{ fontSize: 12, color: RED, marginTop: 4 }}>
+                    Продления
+                  </span>
+                </Button>
+              </Tooltip>
+            </>
+          }
+        />
+      ),
+    },
     {
       title: "Номер ГТД",
       dataIndex: "gtd_number",
@@ -1570,16 +1658,6 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
       ),
     },
     {
-      title: "Валюта",
-      dataIndex: "currency",
-      width: 80,
-      render: (v) => (
-        <Text strong style={{ color: "#1890ff", fontSize: 13 }}>
-          {v || "—"}
-        </Text>
-      ),
-    },
-    {
       title: "Отправитель",
       dataIndex: "sender_name",
       width: 130,
@@ -1610,7 +1688,6 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
       title: "Назначение платежа",
       dataIndex: "payment_purpose",
       width: 130,
-      // ellipsis: { showTitle: true },
       render: (v) => textCell(v),
     },
     poApprovalColumn,
@@ -1708,6 +1785,8 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
         )}
       </NestedBlock>
 
+      <SectionHr />
+
       {/* Блок АКТОВ */}
       <NestedBlock
         icon={<FilePdfOutlined style={{ color: RED }} />}
@@ -1733,6 +1812,8 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
         )}
       </NestedBlock>
 
+      <SectionHr />
+
       {/* Блок ПП */}
       <NestedBlock
         icon={<CreditCardOutlined style={{ color: RED }} />}
@@ -1757,6 +1838,16 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
           />
         )}
       </NestedBlock>
+
+      {/* Жирная линия, отделяющая этот инвойс от следующего */}
+      <hr
+        style={{
+          width: "100%",
+          border: "none",
+          borderTop: `4px solid ${RED}`,
+          margin: "5px 0 0",
+        }}
+      />
 
       {/* Модалки */}
       {gtdModal && (
@@ -1786,6 +1877,32 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
           record={poModal.record}
           onClose={() => setPoModal(null)}
           onSaved={loadPo}
+        />
+      )}
+
+      {/* Продление срока ГТД: подача заявки */}
+      {extendModal && (
+        <GtdExtendModal
+          branchId={branchId}
+          companyId={companyId}
+          contractId={contractId}
+          invoiceId={invoiceId}
+          gtd={extendModal.gtd}
+          onClose={() => setExtendModal(null)}
+          onSaved={loadGtd}
+        />
+      )}
+
+      {/* Продление срока ГТД: история заявок */}
+      {historyModal && (
+        <GtdExtensionHistoryModal
+          branchId={branchId}
+          companyId={companyId}
+          contractId={contractId}
+          invoiceId={invoiceId}
+          gtd={historyModal.gtd}
+          canEditRequest={perms.create}
+          onClose={() => setHistoryModal(null)}
         />
       )}
     </div>
@@ -1834,6 +1951,10 @@ const ContractInvoices = ({ contractId }) => {
   }, [load]);
 
   const handleDelete = async (id) => {
+    if (!perms.del) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await useInvoiceStore
         .getState()
@@ -1846,22 +1967,27 @@ const ContractInvoices = ({ contractId }) => {
   };
 
   const columns = [
-    {
-      title: "Действия",
-      key: "actions",
-      width: 160,
-      align: "left",
-      render: (_, record) => (
-        <RowActions
-          deleteTitle="Удалить инвойс?"
-          onEdit={(e) => {
-            e.stopPropagation();
-            setModal({ record });
-          }}
-          onDelete={() => handleDelete(record.id)}
-        />
-      ),
-    },
+    // Колонка «Действия» только если есть право на изменение или удаление
+    ...(perms.edit || perms.del
+      ? [
+          {
+            title: "Действия",
+            key: "actions",
+            width: 160,
+            align: "left",
+            render: (_, record) => (
+              <RowActions
+                deleteTitle="Удалить инвойс?"
+                onEdit={(e) => {
+                  e.stopPropagation();
+                  setModal({ record });
+                }}
+                onDelete={() => handleDelete(record.id)}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       title: "Номер инвойса",
       dataIndex: "invoice_number",
@@ -1886,7 +2012,7 @@ const ContractInvoices = ({ contractId }) => {
       key: "amount",
       width: 150,
       render: (v, r) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong style={{ color: "#d946ef", fontSize: 13 }}>
             {formatMoney(v, r.currency)}
           </Text>
@@ -1943,6 +2069,7 @@ const ContractInvoices = ({ contractId }) => {
       ) : (
         <Table
           {...nestedTableProps}
+          rowClassName={() => "invoice-row"}
           columns={columns}
           dataSource={rows}
           tableLayout="fixed"
@@ -1992,7 +2119,7 @@ export const ContractsUpdate = () => {
     deleteContract,
     clearError,
   } = useContractStore();
-  const { role, user } = useAuthStore();
+  const { user } = useAuthStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -2037,10 +2164,13 @@ export const ContractsUpdate = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyName, isModalOpen]);
 
-  const normalizedRole = String(role || "").toLowerCase();
-  const canCreateEdit = CAN_CREATE_EDIT.includes(normalizedRole);
-  const canEdit = CAN_EDIT.includes(normalizedRole);
-  const canDelete = CAN_DELETE.includes(normalizedRole);
+  // ===== ПРАВА (Да -> можно, Нет -> нельзя) =====
+  // admin / compliance — всё; currency_control — по выданным правам
+  // (вкладка «Права доступа»); operator — только создание.
+  const subPerms = useDocPermissions();
+  const canCreate = subPerms.create;
+  const canEdit = subPerms.edit;
+  const canDelete = subPerms.del;
 
   const filteredContracts = Array.isArray(contracts)
     ? contracts.filter((contract) => {
@@ -2193,6 +2323,10 @@ export const ContractsUpdate = () => {
   };
 
   const openCreateModal = () => {
+    if (!canCreate) {
+      message.warning("У вас нет прав на создание");
+      return;
+    }
     setEditingContract(null);
     form.resetFields();
     form.setFieldsValue({
@@ -2203,6 +2337,10 @@ export const ContractsUpdate = () => {
   };
 
   const openEditModal = (record) => {
+    if (!canEdit) {
+      message.warning("У вас нет прав на редактирование");
+      return;
+    }
     setEditingContract(record);
 
     form.setFieldsValue({
@@ -2232,6 +2370,16 @@ export const ContractsUpdate = () => {
 
   const handleCreateSubmit = async () => {
     if (submitting) return;
+
+    // Повторная проверка прав перед отправкой
+    if (editingContract ? !canEdit : !canCreate) {
+      message.warning(
+        editingContract
+          ? "У вас нет прав на редактирование"
+          : "У вас нет прав на создание",
+      );
+      return;
+    }
 
     let values;
     try {
@@ -2300,6 +2448,10 @@ export const ContractsUpdate = () => {
 
   const handleDelete = async (e, contractId) => {
     e?.stopPropagation?.();
+    if (!canDelete) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await deleteContract(branchId, companyId, contractId);
       message.success("Контракт удален в корзину");
@@ -2339,7 +2491,7 @@ export const ContractsUpdate = () => {
       const login = reviewer?.login || reviewedBy || "—";
 
       return (
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <Tag color={info.color} style={{ borderRadius: 6, margin: 0 }}>
             {info.label}
           </Tag>
@@ -2462,7 +2614,7 @@ export const ContractsUpdate = () => {
       title: "Номер контракта",
       dataIndex: "contract_number",
       key: "contract_number",
-      width: 160,
+      width: 200,
       render: (v) => <Text strong>{v || "—"}</Text>,
     },
     {
@@ -2479,7 +2631,7 @@ export const ContractsUpdate = () => {
       key: "total_amount",
       width: 220,
       render: (v, r) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong style={{ color: "#d946ef", fontSize: 14 }}>
             {formatMoney(v, r.contract_currency)}
           </Text>
@@ -2527,27 +2679,12 @@ export const ContractsUpdate = () => {
       ),
     },
     {
-      title: "Доп. соглашение",
-      key: "additional_agreements",
-      width: 200,
-      render: (_, r) => <AgreementNumbers contractId={r.id} />,
-    },
-    {
       title: "Статус",
       dataIndex: "status",
       key: "status",
       width: 120,
       render: (v) => statusTag(STATUS_MAP, v),
     },
-    {
-      title: "Согласование",
-      dataIndex: "approval_status",
-      key: "approval_status",
-      width: 180,
-      render: (v) => statusTag(APPROVAL_STATUS_MAP, v),
-    },
-    reviewColumn("Комплаенс", "compliance", "#52c41a"),
-    reviewColumn("Валютный контроль", "currency_control", RED),
     {
       title: "Получатель",
       dataIndex: "receiver_name",
@@ -2661,13 +2798,6 @@ export const ContractsUpdate = () => {
     },
   ];
 
-  const subPerms = {
-    create: ["admin", "compliance", "currency_control", "operator"].includes(
-      normalizedRole,
-    ),
-    edit: ["admin", "compliance", "currency_control"].includes(normalizedRole),
-    del: ["admin", "compliance", "currency_control"].includes(normalizedRole),
-  };
   const ctxValue = {
     branchId,
     companyId,
@@ -2743,7 +2873,7 @@ export const ContractsUpdate = () => {
             </Space>
 
             <Space>
-              {canCreateEdit && (
+              {canCreate && (
                 <Button
                   danger
                   type="primary"
@@ -2777,7 +2907,7 @@ export const ContractsUpdate = () => {
               boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
               overflow: "hidden",
             }}
-            bodyStyle={{ padding: 0 }}
+            styles={{ body: { padding: 0 } }}
           >
             <div
               style={{
@@ -2865,6 +2995,7 @@ export const ContractsUpdate = () => {
                 <Table
                   className="red-table"
                   rowKey="id"
+                  rowClassName={() => "contract-row"}
                   columns={columns}
                   dataSource={safeContracts}
                   scroll={{ x: "max-content" }}
@@ -2880,7 +3011,43 @@ export const ContractsUpdate = () => {
                           width: "min(1400px, calc(100vw - 140px))",
                         }}
                       >
-                        <ContractInvoices contractId={record.id} />
+                        {/* Контракт в отдельной рамке с шапкой */}
+                        <div
+                          style={{
+                            border: `2px solid ${RED}`,
+                            borderRadius: 14,
+                            overflow: "hidden",
+                            background: "#fff",
+                          }}
+                        >
+                          <div
+                            style={{
+                              background: RED,
+                              color: "#fff",
+                              padding: "10px 16px",
+                              display: "flex",
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                              gap: 16,
+                            }}
+                          >
+                            <Text strong style={{ color: "#fff", fontSize: 15 }}>
+                              КОНТРАКТ № {record.contract_number || "—"}
+                            </Text>
+                            <Text style={{ color: "#fff" }}>
+                              Сумма:{" "}
+                              <b>
+                                {formatMoney(
+                                  record.total_amount,
+                                  record.contract_currency,
+                                )}
+                              </b>
+                            </Text>
+                          </div>
+                          <div style={{ padding: "4px 14px 10px" }}>
+                            <ContractInvoices contractId={record.id} />
+                          </div>
+                        </div>
                       </div>
                     ),
                   }}
@@ -2924,7 +3091,7 @@ export const ContractsUpdate = () => {
             width={1000}
             style={{ top: 30 }}
             styles={{
-              body: { maxHeight: "calc(120vh - 220px)" },
+              body: { maxHeight: "calc(160vh - 220px)" },
             }}
             footer={[
               <Button

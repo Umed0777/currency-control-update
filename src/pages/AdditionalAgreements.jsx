@@ -31,28 +31,26 @@ import {
   CheckOutlined,
   CloseOutlined,
   BankOutlined,
-  UserOutlined,
   DollarOutlined,
   FileDoneOutlined,
   ClockCircleOutlined,
   CalendarOutlined,
   HistoryOutlined,
   InboxOutlined,
-  SendOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAdditionalAgreementsStore } from "../store/useAdditionalAgreementsStore";
 import { useAuthStore } from "../store/useAuth";
-import { searchCountries, searchCurrencies } from "../api/dictionary.service";
+import { useDocPermissions } from "../store/useDocPermissions";
+import { searchCurrencies } from "../api/dictionary.service";
 
 const { Title, Text } = Typography;
 
 const RED = "#8b0000";
 
-const CAN_CREATE_EDIT = ["admin", "compliance", "operator"];
-const CAN_DELETE = ["admin", "compliance", "currency_control"];
+const MAX_FILE_SIZE_MB = 100;
 
 // ==================== ФОРМАТТЕРЫ ====================
 const formatDateTime = (value) => {
@@ -92,10 +90,9 @@ const formatMoney = (value, currency) => {
 
 const INITIAL_AGREEMENT_VALUES = {
   currency: undefined,
-  return_days: "",
 };
 
-// ==================== ХЕЛПЕРЫ ДЛЯ SELECT ====================
+// ==================== ХЕЛПЕРЫ ====================
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
   if (value?.results && Array.isArray(value.results)) return value.results;
@@ -113,25 +110,27 @@ const buildCurrencyOptions = (currencies) =>
     };
   });
 
-const buildCountryOptions = (countries) =>
-  toArray(countries).map((c, index) => {
-    const name = c?.name_ru || c?.name || c?.title || "";
-    return {
-      value: String(name || c?.id || index),
-      label: String(name || c?.id || index),
-    };
-  });
-
 const filterByLabel = (input, option) =>
   String(option?.label || "")
     .toLowerCase()
     .includes(String(input || "").toLowerCase());
 
+// Полная ссылка на файл (если бэкенд отдаёт относительный путь)
+const getFileUrl = (path) => {
+  if (!path) return null;
+  const p = String(path);
+  if (/^https?:\/\//i.test(p)) return p;
+  const base = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
+  return `${base}/${p.replace(/^\//, "")}`;
+};
+
+const getFileName = (path) => String(path || "").split(/[\\/]/).pop();
+
 export const AdditionalAgreements = () => {
   const { id: branchId, companyId, contractId } = useParams();
   const navigate = useNavigate();
 
-  // ===== STORE: AGREEMENTS =====
+  // ===== STORE =====
   const {
     agreements,
     isLoading,
@@ -143,11 +142,11 @@ export const AdditionalAgreements = () => {
     clearError,
   } = useAdditionalAgreementsStore();
 
-  const { role, user } = useAuthStore();
+  const { user } = useAuthStore();
 
   const [activeBranchId, setActiveBranchId] = useState(branchId);
 
-  // ===== AGREEMENTS state =====
+  // ===== STATE =====
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
@@ -155,17 +154,17 @@ export const AdditionalAgreements = () => {
 
   // ===== СПРАВОЧНИКИ =====
   const [currencies, setCurrencies] = useState([]);
-  const [countries, setCountries] = useState([]);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
-  const [loadingCountries, setLoadingCountries] = useState(false);
 
-  const normalizedRole = String(role || "").toLowerCase();
-  const canCreateEdit = CAN_CREATE_EDIT.includes(normalizedRole);
-  const canDelete = CAN_DELETE.includes(normalizedRole);
+  // ===== ПРАВА (Да -> можно, Нет -> нельзя) =====
+  const perms = useDocPermissions();
+  const canCreate = perms.create;
+  const canEdit = perms.edit;
+  const canDelete = perms.del;
+
   const safeAgreements = Array.isArray(agreements) ? agreements : [];
 
   const currencyOptions = buildCurrencyOptions(currencies);
-  const countryOptions = buildCountryOptions(countries);
 
   // ===== ЭФФЕКТЫ =====
   useEffect(() => {
@@ -174,78 +173,74 @@ export const AdditionalAgreements = () => {
     }
   }, [activeBranchId, companyId, contractId, fetchAgreements]);
 
+  // Единственное место, где показывается ошибка из store.
+  // key объединяет одинаковые сообщения в одно.
   useEffect(() => {
     if (error) {
-      message.error(error);
+      message.error({ content: error, key: "agreements-error" });
       clearError?.();
     }
   }, [error, clearError]);
 
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const fetchCurrencies = async () => {
       setLoadingCurrencies(true);
       try {
-        const currenciesData = await searchCurrencies("");
-        setCurrencies(toArray(currenciesData));
+        const data = await searchCurrencies("");
+        setCurrencies(toArray(data));
       } catch (err) {
         console.error("Ошибка загрузки валют:", err);
       } finally {
         setLoadingCurrencies(false);
       }
-
-      setLoadingCountries(true);
-      try {
-        const countriesData = await searchCountries("");
-        setCountries(toArray(countriesData));
-      } catch (err) {
-        console.error("Ошибка загрузки стран:", err);
-      } finally {
-        setLoadingCountries(false);
-      }
     };
-    fetchInitialData();
+    fetchCurrencies();
   }, []);
 
   // ===== АВТОР =====
   const getAuthor = (record) => {
     const creator = record?.creator || null;
+    const isMe = record?.created_by === user?.login;
     const rawLastName =
-      creator?.last_name ||
-      record?.last_name ||
-      (record?.created_by === user?.login ? user?.last_name : null);
+      creator?.last_name || record?.last_name || (isMe ? user?.last_name : null);
     const rawFirstName =
       creator?.first_name ||
       record?.first_name ||
-      (record?.created_by === user?.login ? user?.first_name : null);
+      (isMe ? user?.first_name : null);
     const login =
-      creator?.login ||
-      record?.login ||
-      record?.created_by ||
-      (record?.created_by === user?.login ? user?.login : null);
+      creator?.login || record?.login || record?.created_by || null;
     const email =
-      creator?.email ||
-      record?.email ||
-      (record?.created_by === user?.login ? user?.email : null);
+      creator?.email || record?.email || (isMe ? user?.email : null);
 
-    const surname = rawFirstName || "";
-    const name = rawLastName || "";
-    const fullName = [surname, name].filter(Boolean).join(" ").trim();
+    const fullName = [rawFirstName, rawLastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
 
     return { fullName, login, email };
   };
 
-  // ===== AGREEMENTS CRUD =====
+  // ===== CRUD =====
   const openCreateModal = () => {
+    if (!canCreate) {
+      message.warning("У вас нет прав на создание");
+      return;
+    }
     setEditingAgreement(null);
     form.resetFields();
     form.setFieldsValue({
       ...INITIAL_AGREEMENT_VALUES,
       branch_id: activeBranchId,
+      document: [],
     });
     setIsModalOpen(true);
   };
 
   const openEditModal = (record) => {
+    if (!canEdit) {
+      message.warning("У вас нет прав на редактирование");
+      return;
+    }
     setEditingAgreement(record);
     form.setFieldsValue({
       ...record,
@@ -253,57 +248,66 @@ export const AdditionalAgreements = () => {
       agreement_date: record.agreement_date
         ? dayjs(record.agreement_date)
         : null,
-      delivery_date: record.delivery_date ? dayjs(record.delivery_date) : null,
-      agreement_end_date: record.agreement_end_date
-        ? dayjs(record.agreement_end_date)
-        : null,
-      return_days:
-        record.return_days !== undefined && record.return_days !== null
-          ? String(record.return_days)
-          : "",
       amount:
         record.amount !== undefined && record.amount !== null
           ? String(record.amount)
           : "",
-      sender_name: record.sender_name || "",
-      sender_bank: record.sender_bank || "",
-      sender_country: record.sender_country || "",
       document: [],
     });
     setIsModalOpen(true);
   };
 
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingAgreement(null);
+  };
+
   const handleSubmit = async () => {
     if (submitting) return;
+
+    // Повторная проверка прав перед отправкой
+    if (editingAgreement ? !canEdit : !canCreate) {
+      message.warning(
+        editingAgreement
+          ? "У вас нет прав на редактирование"
+          : "У вас нет прав на создание",
+      );
+      return;
+    }
+
     let values;
     try {
       values = await form.validateFields();
     } catch {
       return;
     }
+
     setSubmitting(true);
     try {
       const effectiveBranchId = values.branch_id || activeBranchId;
-      const payload = {
-        agreement_number: values.agreement_number?.trim() || "",
-        subject: values.subject?.trim() || "",
-        agreement_date: values.agreement_date?.format("YYYY-MM-DD") || null,
-        delivery_date: values.delivery_date?.format("YYYY-MM-DD") || null,
-        agreement_end_date:
-          values.agreement_end_date?.format("YYYY-MM-DD") || null,
-        return_days: values.return_days ? Number(values.return_days) : null,
-        amount: values.amount
-          ? Number(String(values.amount).replace(/\s|,/g, ""))
-          : 0,
-        currency: values.currency || "USD",
-        receiver_name: values.receiver_name?.trim() || "",
-        receiver_bank: values.receiver_bank?.trim() || "",
-        receiver_country: values.receiver_country || "",
-        sender_name: values.sender_name?.trim() || "",
-        sender_bank: values.sender_bank?.trim() || "",
-        sender_country: values.sender_country || "",
-        document: values.document?.[0]?.originFileObj || null,
-      };
+
+      // Бэкенд принимает multipart/form-data (formData в Swagger)
+      const payload = new FormData();
+      payload.append(
+        "agreement_number",
+        values.agreement_number?.trim() || "",
+      );
+      payload.append(
+        "agreement_date",
+        values.agreement_date?.format("YYYY-MM-DD") || "",
+      );
+      payload.append(
+        "amount",
+        String(values.amount || "0")
+          .replace(/\s/g, "")
+          .replace(",", "."),
+      );
+      payload.append("currency", values.currency || "USD");
+
+      const file = values.document?.[0]?.originFileObj;
+      if (file) {
+        payload.append("document", file, file.name);
+      }
 
       if (editingAgreement) {
         await updateAgreement(
@@ -323,6 +327,7 @@ export const AdditionalAgreements = () => {
         );
         message.success("Доп. соглашение создано");
       }
+
       if (effectiveBranchId !== activeBranchId) {
         setActiveBranchId(effectiveBranchId);
       } else {
@@ -332,18 +337,8 @@ export const AdditionalAgreements = () => {
       form.resetFields();
       setEditingAgreement(null);
     } catch (err) {
+      // ошибку уже показал useEffect через store.error
       console.error("Ошибка сохранения:", err);
-      const backendMsg =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        null;
-      message.error(
-        backendMsg ||
-          (editingAgreement
-            ? "Не удалось обновить доп. соглашение"
-            : "Не удалось создать доп. соглашение"),
-      );
     } finally {
       setSubmitting(false);
     }
@@ -351,26 +346,47 @@ export const AdditionalAgreements = () => {
 
   const handleDelete = async (e, agreementId) => {
     e?.stopPropagation?.();
+    if (!canDelete) {
+      message.warning("У вас нет прав на удаление");
+      return;
+    }
     try {
       await deleteAgreement(activeBranchId, companyId, contractId, agreementId);
       message.success("Доп. соглашение удалено в корзину");
-    } catch {
-      message.error("Не удалось удалить доп. соглашение");
+    } catch (err) {
+      // ошибку уже показал useEffect через store.error
+      console.error("Ошибка удаления:", err);
     }
   };
 
-  // ===== КОЛОНКИ: AGREEMENTS =====
+  // ===== UPLOAD: проверка файла =====
+  const beforeUpload = (file) => {
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      message.error("Можно загружать только PDF");
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size / 1024 / 1024 > MAX_FILE_SIZE_MB) {
+      message.error(`Размер файла не должен превышать ${MAX_FILE_SIZE_MB} МБ`);
+      return Upload.LIST_IGNORE;
+    }
+    return false; // не загружать автоматически, отправим вместе с формой
+  };
+
+  // ===== КОЛОНКИ =====
   const agreementColumns = [
-    ...(canCreateEdit || canDelete
+    ...(canEdit || canDelete
       ? [
           {
             title: "Действие",
             key: "actions",
-            width: 200,
+            width: 140,
             align: "center",
             render: (_, record) => (
               <Space size={4}>
-                {canCreateEdit && (
+                {canEdit && (
                   <Tooltip title="Редактировать">
                     <Button
                       type="text"
@@ -456,6 +472,33 @@ export const AdditionalAgreements = () => {
           <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
         </Space>
       ),
+    },
+    {
+      title: "Документ",
+      key: "document",
+      width: 180,
+      render: (_, record) => {
+        const path =
+          record.document_url || record.document_path || record.document;
+        if (!path || typeof path !== "string") {
+          return <Text type="secondary">—</Text>;
+        }
+        return (
+          <Tooltip title={getFileName(path)}>
+            <Button
+              type="link"
+              icon={<FileDoneOutlined />}
+              href={getFileUrl(path)}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: RED, padding: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              Открыть PDF
+            </Button>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "Создал",
@@ -589,7 +632,7 @@ export const AdditionalAgreements = () => {
         </Space>
 
         <Space>
-          {canCreateEdit && (
+          {canCreate && (
             <Button
               danger
               type="primary"
@@ -617,7 +660,7 @@ export const AdditionalAgreements = () => {
         </Space>
       </div>
 
-      {/* ===== ТАБЛИЦА ДОП. СОГЛАШЕНИЙ ===== */}
+      {/* ===== ТАБЛИЦА ===== */}
       <Card
         style={{
           borderRadius: 18,
@@ -626,7 +669,7 @@ export const AdditionalAgreements = () => {
           overflow: "hidden",
           marginBottom: 24,
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div
           style={{
@@ -673,7 +716,7 @@ export const AdditionalAgreements = () => {
           ) : (
             <Table
               className="red-table"
-              rowKey={(r) => String(r.id ?? Math.random())}
+              rowKey={(r) => String(r.id)}
               loading={isLoading}
               columns={agreementColumns}
               dataSource={safeAgreements}
@@ -681,7 +724,6 @@ export const AdditionalAgreements = () => {
               pagination={{
                 pageSize: 10,
                 showSizeChanger: false,
-                pageSizeOptions: ["10", "20", "50"],
                 style: { marginTop: 16 },
               }}
               locale={{
@@ -701,7 +743,7 @@ export const AdditionalAgreements = () => {
         </div>
       </Card>
 
-      {/* ===== МОДАЛКА AGREEMENT ===== */}
+      {/* ===== МОДАЛКА ===== */}
       <Modal
         title={
           <span style={{ fontWeight: 700, color: RED, fontSize: 17 }}>
@@ -712,10 +754,7 @@ export const AdditionalAgreements = () => {
         }
         open={isModalOpen}
         onCancel={() => {
-          if (!submitting) {
-            setIsModalOpen(false);
-            setEditingAgreement(null);
-          }
+          if (!submitting) closeModal();
         }}
         afterClose={() => {
           form.resetFields();
@@ -725,9 +764,8 @@ export const AdditionalAgreements = () => {
         keyboard={false}
         destroyOnClose
         forceRender
-        width={1000}
-        style={{ top: 30 }}
-        styles={{ body: { maxHeight: "calc(130vh - 20px)" } }}
+        width={800}
+        style={{ top: 100 }}
         footer={[
           <Button
             key="submit"
@@ -751,10 +789,7 @@ export const AdditionalAgreements = () => {
             danger
             icon={<CloseOutlined />}
             disabled={submitting}
-            onClick={() => {
-              setIsModalOpen(false);
-              setEditingAgreement(null);
-            }}
+            onClick={closeModal}
             style={{ borderRadius: 10, height: 35 }}
           >
             Отмена
@@ -767,6 +802,11 @@ export const AdditionalAgreements = () => {
           autoComplete="off"
           initialValues={INITIAL_AGREEMENT_VALUES}
         >
+          <Form.Item name="branch_id" hidden>
+            <Input />
+          </Form.Item>
+
+          {/* ----- Основная информация ----- */}
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: RED }} />
@@ -777,7 +817,7 @@ export const AdditionalAgreements = () => {
           </Divider>
 
           <Row gutter={16}>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
                 label="Номер доп. соглашения"
                 name="agreement_number"
@@ -789,7 +829,7 @@ export const AdditionalAgreements = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
                 label="Дата доп. соглашения"
                 name="agreement_date"
@@ -802,85 +842,9 @@ export const AdditionalAgreements = () => {
                 />
               </Form.Item>
             </Col>
-            {/* <Col span={14}>
-              <Form.Item
-                label="Предмет соглашения"
-                name="subject"
-                rules={[
-                  { required: true, message: "Введите предмет соглашения" },
-                ]}
-              >
-                <Input
-                  placeholder="Введите предмет соглашения"
-                  style={{ borderRadius: 10 }}
-                />
-              </Form.Item>
-            </Col> */}
           </Row>
 
-          {/* <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="Дата доп. соглашения"
-                name="agreement_date"
-                rules={[{ required: true, message: "Выберите дату" }]}
-              >
-                <DatePicker
-                  placeholder="Выберите дату"
-                  style={{ width: "100%", borderRadius: 10 }}
-                  format="YYYY-MM-DD"
-                />
-              </Form.Item>
-            </Col> */}
-            {/* <Col span={8}>
-              <Form.Item
-                label="Срок поставки"
-                name="delivery_date"
-                rules={[{ required: true, message: "Выберите дату" }]}
-              >
-                <DatePicker
-                  placeholder="Выберите дату"
-                  style={{ width: "100%", borderRadius: 10 }}
-                  format="YYYY-MM-DD"
-                />
-              </Form.Item>
-            </Col> */}
-            {/* <Col span={8}>
-              <Form.Item
-                label="Дата окончания"
-                name="agreement_end_date"
-                rules={[{ required: true, message: "Выберите дату" }]}
-              >
-                <DatePicker
-                  placeholder="Выберите дату"
-                  style={{ width: "100%", borderRadius: 10 }}
-                  format="YYYY-MM-DD"
-                />
-              </Form.Item>
-            </Col> */}
-          {/* </Row> */}
-
-          {/* <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="Срок возврата"
-                name="return_days"
-                rules={[
-                  { required: true, message: "Введите количество дней" },
-                  {
-                    pattern: /^[1-9]\d*$/,
-                    message: "Введите целое число > 0",
-                  },
-                ]}
-              >
-                <Input
-                  placeholder="Введите количество дней"
-                  style={{ borderRadius: 10 }}
-                />
-              </Form.Item>
-            </Col>
-          </Row> */}
-
+          {/* ----- Финансы ----- */}
           <Divider orientation="left">
             <Space>
               <DollarOutlined style={{ color: RED }} />
@@ -891,13 +855,16 @@ export const AdditionalAgreements = () => {
           </Divider>
 
           <Row gutter={16}>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
-                label="Сумма  доп. соглашения"
+                label="Сумма доп. соглашения"
                 name="amount"
                 rules={[
                   { required: true, message: "Введите сумму" },
-                  { pattern: /^\d+([.,]\d+)?$/, message: "Введите сумму" },
+                  {
+                    pattern: /^\d+([.,]\d+)?$/,
+                    message: "Введите корректную сумму",
+                  },
                 ]}
               >
                 <Input
@@ -907,7 +874,7 @@ export const AdditionalAgreements = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
                 label="Валюта"
                 name="currency"
@@ -916,7 +883,6 @@ export const AdditionalAgreements = () => {
                 <Select
                   showSearch
                   placeholder="Выберите валюту"
-                  style={{ borderRadius: 10, border: '1px solid #8b0000' }}
                   loading={loadingCurrencies}
                   filterOption={filterByLabel}
                   options={currencyOptions}
@@ -931,129 +897,8 @@ export const AdditionalAgreements = () => {
               </Form.Item>
             </Col>
           </Row>
-{/* 
-          <Divider orientation="left">
-            <Space>
-              <UserOutlined style={{ color: RED }} />
-              <Text strong style={{ color: RED }}>
-                Получатель
-              </Text>
-            </Space>
-          </Divider> */}
 
-          {/* <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="Название получателя"
-                name="receiver_name"
-                rules={[{ required: true, message: "Введите имя" }]}
-              >
-                <Input
-                  placeholder="Введите название"
-                  style={{ borderRadius: 10 }}
-                  prefix={<UserOutlined style={{ color: RED }} />}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Банк получателя"
-                name="receiver_bank"
-                rules={[{ required: true, message: "Введите банк" }]}
-              >
-                <Input
-                  placeholder="Введите банк"
-                  style={{ borderRadius: 10 }}
-                  prefix={<BankOutlined style={{ color: RED }} />}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Страна получателя"
-                name="receiver_country"
-                rules={[{ required: true, message: "Выберите страну" }]}
-              >
-                <Select
-                  showSearch
-                  placeholder="Выберите страну"
-                  style={{ borderRadius: 10 }}
-                  loading={loadingCountries}
-                  filterOption={filterByLabel}
-                  options={countryOptions}
-                  notFoundContent={
-                    loadingCountries ? (
-                      <Spin size="small" />
-                    ) : (
-                      "Ничего не найдено"
-                    )
-                  }
-                />
-              </Form.Item>
-            </Col>
-          </Row> */}
-
-          {/* <Divider orientation="left">
-            <Space>
-              <SendOutlined style={{ color: RED }} />
-              <Text strong style={{ color: RED }}>
-                Отправитель
-              </Text>
-            </Space>
-          </Divider> */}
-
-          {/* <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="Название отправителя"
-                name="sender_name"
-                rules={[{ required: true, message: "Введите название" }]}
-              >
-                <Input
-                  placeholder="Введите название отправителя"
-                  style={{ borderRadius: 10 }}
-                  prefix={<SendOutlined style={{ color: RED }} />}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Банк отправителя"
-                name="sender_bank"
-                rules={[{ required: true, message: "Введите банк" }]}
-              >
-                <Input
-                  placeholder="Введите банк отправителя"
-                  style={{ borderRadius: 10 }}
-                  prefix={<BankOutlined style={{ color: RED }} />}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Страна отправителя"
-                name="sender_country"
-                rules={[{ required: true, message: "Выберите страну" }]}
-              >
-                <Select
-                  showSearch
-                  placeholder="Выберите страну"
-                  style={{ borderRadius: 10 }}
-                  loading={loadingCountries}
-                  filterOption={filterByLabel}
-                  options={countryOptions}
-                  notFoundContent={
-                    loadingCountries ? (
-                      <Spin size="small" />
-                    ) : (
-                      "Ничего не найдено"
-                    )
-                  }
-                />
-              </Form.Item>
-            </Col>
-          </Row> */}
-
+          {/* ----- Документ ----- */}
           <Divider orientation="left">
             <Space>
               <FileDoneOutlined style={{ color: RED }} />
@@ -1064,12 +909,12 @@ export const AdditionalAgreements = () => {
           </Divider>
 
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item
                 label={
                   editingAgreement
-                    ? "Загрузить новый документ (опционально)"
-                    : "Загрузить документ (PDF)"
+                    ? "Файл документа доп. соглашения (.pdf) — загрузите новый, если нужно заменить"
+                    : "Файл документа доп. соглашения (.pdf)"
                 }
                 name="document"
                 valuePropName="fileList"
@@ -1077,25 +922,34 @@ export const AdditionalAgreements = () => {
                 rules={
                   editingAgreement
                     ? []
-                    : [{ required: true, message: "Загрузите документ" }]
+                    : [
+                        {
+                          required: true,
+                          type: "array",
+                          min: 1,
+                          message: "Загрузите документ",
+                        },
+                      ]
                 }
                 extra={
-                  editingAgreement?.document_path ? (
+                  editingAgreement?.document_path ||
+                  editingAgreement?.document_url ? (
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       Текущий файл:{" "}
                       <Text code style={{ fontSize: 11 }}>
-                        {String(editingAgreement.document_path)
-                          .split(/[\\/]/)
-                          .pop()}
+                        {getFileName(
+                          editingAgreement.document_url ||
+                            editingAgreement.document_path,
+                        )}
                       </Text>
                     </Text>
                   ) : null
                 }
               >
                 <Upload.Dragger
-                  beforeUpload={() => false}
+                  beforeUpload={beforeUpload}
                   maxCount={1}
-                  accept=".pdf"
+                  accept=".pdf,application/pdf"
                   style={{
                     borderRadius: 12,
                     background: "#fafafa",
@@ -1115,7 +969,7 @@ export const AdditionalAgreements = () => {
                     className="ant-upload-hint"
                     style={{ fontSize: 12, color: "#999" }}
                   >
-                    Поддерживается только PDF
+                    Поддерживается только PDF (до {MAX_FILE_SIZE_MB} МБ)
                   </p>
                 </Upload.Dragger>
               </Form.Item>

@@ -28,43 +28,96 @@ import {
   ClockCircleOutlined,
   GlobalOutlined,
   LoginOutlined,
+  LogoutOutlined,
   PlusCircleOutlined,
   EditOutlined,
   DeleteOutlined,
   FileTextOutlined,
   ArrowLeftOutlined,
+  CheckCircleOutlined,
+  SafetyCertificateOutlined,
+  WarningOutlined,
+  CloseCircleOutlined,
+  KeyOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
 import { useAuditStore } from "../store/useAuditStore";
 import { useAuthStore } from "../store/useAuth";
+import { AUDIT_ENTITY_MAP } from "../constants/statuses";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
-
+// ==== СЛОВАРЬ ДЕЙСТВИЙ ====
 const ACTION_MAP = {
   LOGIN: { label: "Вход", color: "green", icon: <LoginOutlined /> },
-  LOGOUT: { label: "Выход", color: "default", icon: <LoginOutlined /> },
+  LOGOUT: { label: "Выход", color: "default", icon: <LogoutOutlined /> },
   CREATE: { label: "Создание", color: "blue", icon: <PlusCircleOutlined /> },
   UPDATE: { label: "Обновление", color: "gold", icon: <EditOutlined /> },
   DELETE: { label: "Удаление", color: "red", icon: <DeleteOutlined /> },
+  APPROVE_REQUEST: {
+    label: "Одобрение запроса",
+    color: "green",
+    icon: <CheckCircleOutlined />,
+  },
+  REQUEST_ACCESS: {
+    label: "Запрос доступа",
+    color: "blue",
+    icon: <KeyOutlined />,
+  },
+  UNAUTHORIZED_ACCESS_ATTEMPT: {
+    label: "Попытка несанкц. доступа",
+    color: "red",
+    icon: <WarningOutlined />,
+  },
+  GRANT_PERMISSION: {
+    label: "Выдача прав",
+    color: "purple",
+    icon: <SafetyCertificateOutlined />,
+  },
+  FAILED_LOGIN: {
+    label: "Неудачный вход",
+    color: "volcano",
+    icon: <CloseCircleOutlined />,
+  },
+  UPDATE_PERMISSION: {
+    label: "Обновление разрешения",
+    color: "orange",
+    icon: <SafetyCertificateOutlined />,
+  },
 };
 
-const ENTITY_MAP = {
-  contract: "Контракт",
-  invoice: "Инвойс",
-  company: "Компания",
-  branch: "Филиал",
-  additional_agreement: "Доп. соглашение",
-  gtd: "ГТД",
-  payment_order: "Платёжное поручение",
+// ==== СЛОВАРЬ РОЛЕЙ ====
+const ROLE_MAP = {
+  admin: "Администратор",
+  pre_auth: "Предварительная авторизация",
+  currency_control: "Валютный контроль",
+  compliance: "Комплаенс",
   user: "Пользователь",
+  manager: "Менеджер",
+  guest: "Гость",
+  anonymous: "Аноним",
+};
+
+// ==== ПЕРЕВОД ТЕХНИЧЕСКИХ ЗНАЧЕНИЙ В «ДЕТАЛЯХ» ====
+const DETAILS_MAP = {
+  invalid_token: "Недействительный токен",
+  token_expired: "Срок действия токена истёк",
+  expired_token: "Срок действия токена истёк",
+  missing_token: "Токен отсутствует",
+  invalid_credentials: "Неверный логин или пароль",
+  unauthorized: "Не авторизован",
+  forbidden: "Доступ запрещён",
+  access_denied: "Доступ запрещён",
+  user_not_found: "Пользователь не найден",
+  user_blocked: "Пользователь заблокирован",
+};
+
+// ==== ПЕРЕВОД ЛОГИНА ПОЛЬЗОВАТЕЛЯ ====
+const USER_LOGIN_MAP = {
+  anonymous: "Аноним",
+  system: "Система",
 };
 
 const formatDateTime = (value) => {
@@ -79,6 +132,20 @@ const formatDateTime = (value) => {
     minute: "2-digit",
     second: "2-digit",
   });
+};
+
+// Приводим details к строке (на случай, если бэкенд вернёт объект)
+const formatDetails = (v) => {
+  if (v === undefined || v === null || v === "") return "";
+  if (typeof v === "string") {
+    const key = v.trim().toLowerCase();
+    return DETAILS_MAP[key] || v;
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 };
 
 export const AuditLogs = () => {
@@ -176,7 +243,7 @@ export const AuditLogs = () => {
       title: "ID",
       dataIndex: "id",
       key: "id",
-      width: 80,
+      width: 70,
       align: "center",
       render: (v) => <Text type="secondary">{v ?? "—"}</Text>,
     },
@@ -184,7 +251,7 @@ export const AuditLogs = () => {
       title: "Дата",
       dataIndex: "created_at",
       key: "created_at",
-      width: 180,
+      width: 170,
       render: (v) => (
         <Space size={4}>
           <ClockCircleOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
@@ -192,11 +259,12 @@ export const AuditLogs = () => {
         </Space>
       ),
     },
+    // ==== ДЕЙСТВИЕ (узкая колонка) ====
     {
       title: "Действие",
       dataIndex: "action",
       key: "action",
-      width: 150,
+      width: 180,
       render: (v) => {
         const info = ACTION_MAP[v] || {
           label: v || "—",
@@ -210,7 +278,11 @@ export const AuditLogs = () => {
             style={{
               borderRadius: 8,
               fontWeight: 500,
-              padding: "2px 10px",
+              padding: "0 6px",
+              fontSize: 11,
+              margin: 0,
+              whiteSpace: "normal",
+              lineHeight: "18px",
             }}
           >
             {info.label}
@@ -218,15 +290,31 @@ export const AuditLogs = () => {
         );
       },
     },
+    // ==== ДЕТАЛИ (сразу после действия, видно без прокрутки) ====
+    {
+      title: "Детали",
+      dataIndex: "details",
+      key: "details",
+      width: 280,
+      ellipsis: { showTitle: false },
+      render: (v) => {
+        const text = formatDetails(v);
+        return (
+          <Tooltip title={text} placement="topLeft">
+            <Text style={{ fontSize: 12 }}>{text || "—"}</Text>
+          </Tooltip>
+        );
+      },
+    },
     {
       title: "Сущность",
       dataIndex: "entity",
       key: "entity",
-      width: 180,
+      width: 200,
       render: (v, record) => (
         <Space direction="vertical" size={0}>
           <Tag color="purple" style={{ borderRadius: 8 }}>
-            {ENTITY_MAP[v] || v || "—"}
+            {AUDIT_ENTITY_MAP[v] || v || "—"}
           </Tag>
           {record.entity_id !== undefined && record.entity_id !== null && (
             <Text type="secondary" style={{ fontSize: 11 }}>
@@ -240,7 +328,7 @@ export const AuditLogs = () => {
       title: "Пользователь",
       dataIndex: "user_login",
       key: "user_login",
-      width: 280,
+      width: 270,
       render: (v, record) => {
         const user = record.user || {};
         const fullName = [user.first_name, user.last_name]
@@ -248,7 +336,9 @@ export const AuditLogs = () => {
           .join(" ")
           .trim();
         const email = user.email || record.user_email;
-        const login = user.login || v || record.user_login;
+        const rawLogin = user.login || v || record.user_login;
+        const login =
+          USER_LOGIN_MAP[String(rawLogin || "").toLowerCase()] || rawLogin;
 
         if (!fullName && !login && !email) {
           return <Text type="secondary">—</Text>;
@@ -294,10 +384,10 @@ export const AuditLogs = () => {
       title: "Роль",
       dataIndex: "role",
       key: "role",
-      width: 140,
+      width: 150,
       render: (v) => (
         <Tag color="blue" style={{ borderRadius: 8 }}>
-          {v || "—"}
+          {ROLE_MAP[v] || v || "—"}
         </Tag>
       ),
     },
@@ -305,7 +395,7 @@ export const AuditLogs = () => {
       title: "Филиал",
       dataIndex: "branch_id",
       key: "branch_id",
-      width: 120,
+      width: 110,
       align: "center",
       render: (v) => (
         <Space size={4}>
@@ -318,7 +408,7 @@ export const AuditLogs = () => {
       title: "IP-адрес",
       dataIndex: "ip_address",
       key: "ip_address",
-      width: 150,
+      width: 140,
       render: (v) => (
         <Space size={4}>
           <GlobalOutlined style={{ color: "#8b5cf6", fontSize: 12 }} />
@@ -328,22 +418,10 @@ export const AuditLogs = () => {
         </Space>
       ),
     },
-    {
-      title: "Детали",
-      dataIndex: "details",
-      key: "details",
-      ellipsis: { showTitle: false },
-      render: (v) => (
-        <Tooltip title={v} placement="topLeft">
-          <Text style={{ fontSize: 12 }}>{v || "—"}</Text>
-        </Tooltip>
-      ),
-    },
   ];
 
   return (
     <div>
-      {/* ==== Заголовок ==== */}
       <div
         style={{
           display: "flex",
@@ -365,9 +443,7 @@ export const AuditLogs = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -377,7 +453,7 @@ export const AuditLogs = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
               Журнал аудита
             </Title>
@@ -392,7 +468,13 @@ export const AuditLogs = () => {
             danger
             icon={<ReloadOutlined />}
             onClick={() => fetchAuditLogs()}
-            style={{ borderRadius: 12, height: 35, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
+            style={{
+              borderRadius: 12,
+              height: 35,
+              background: "#8b0000",
+              color: "#fff",
+              border: "1px solid #8b0000",
+            }}
           >
             Обновить
           </Button>
@@ -417,7 +499,7 @@ export const AuditLogs = () => {
       >
         <Row gutter={[16, 16]}>
           <Col xs={24} md={12} lg={6}>
-            <Text strong style={{ fontSize: 13, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Логин пользователя
             </Text>
             <Input
@@ -430,18 +512,23 @@ export const AuditLogs = () => {
                   user_login: e.target.value,
                 }))
               }
-              prefix={<UserOutlined style={{ color: '#8b0000' }} />}
+              prefix={<UserOutlined style={{ color: "#8b0000" }} />}
               allowClear
             />
           </Col>
 
           <Col xs={24} md={12} lg={6}>
-            <Text strong style={{ fontSize: 13, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Действие
             </Text>
             <Select
               placeholder="Выберите действие"
-              style={{ width: "100%", borderRadius: 10, marginTop: 6, border:  ' 1px solid #8b0000' }}
+              style={{
+                width: "100%",
+                borderRadius: 10,
+                marginTop: 6,
+                border: "1px solid #8b0000",
+              }}
               value={localFilters.action}
               onChange={(v) =>
                 setLocalFilters((s) => ({ ...s, action: v }))
@@ -453,31 +540,50 @@ export const AuditLogs = () => {
                 { value: "CREATE", label: "Создание" },
                 { value: "UPDATE", label: "Обновление" },
                 { value: "DELETE", label: "Удаление" },
+                { value: "APPROVE_REQUEST", label: "Одобрение запроса" },
+                { value: "REQUEST_ACCESS", label: "Запрос доступа" },
+                {
+                  value: "UNAUTHORIZED_ACCESS_ATTEMPT",
+                  label: "Попытка несанкц. доступа",
+                },
+                { value: "GRANT_PERMISSION", label: "Выдача прав" },
+                { value: "FAILED_LOGIN", label: "Неудачный вход" },
+                {
+                  value: "UPDATE_PERMISSION",
+                  label: "Обновление разрешения",
+                },
               ]}
             />
           </Col>
 
           <Col xs={24} md={12} lg={6}>
-            <Text strong style={{ fontSize: 13, color: '#8b0000', }}>
+            <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Сущность
             </Text>
             <Select
               placeholder="Выберите сущность"
-              style={{ width: "100%", borderRadius: 10, marginTop: 6, border: '1px solid #8b0000' }}
+              style={{
+                width: "100%",
+                borderRadius: 10,
+                marginTop: 6,
+                border: "1px solid #8b0000",
+              }}
               value={localFilters.entity}
               onChange={(v) =>
                 setLocalFilters((s) => ({ ...s, entity: v }))
               }
               allowClear
-              options={Object.entries(ENTITY_MAP).map(([value, label]) => ({
-                value,
-                label,
-              }))}
+              options={Object.entries(AUDIT_ENTITY_MAP).map(
+                ([value, label]) => ({
+                  value,
+                  label,
+                })
+              )}
             />
           </Col>
 
           <Col xs={24} md={12} lg={6}>
-            <Text strong style={{ fontSize: 13, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Филиал (ID)
             </Text>
             <Input
@@ -490,13 +596,13 @@ export const AuditLogs = () => {
                   branch_id: e.target.value,
                 }))
               }
-              prefix={<BankOutlined style={{ color: '#8b0000' }} />}
+              prefix={<BankOutlined style={{ color: "#8b0000" }} />}
               allowClear
             />
           </Col>
 
           <Col xs={24} md={12} lg={12}>
-            <Text strong style={{ fontSize: 13, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Диапазон дат
             </Text>
             <RangePicker
@@ -525,9 +631,7 @@ export const AuditLogs = () => {
                 style={{
                   borderRadius: 10,
                   height: 35,
-                  // background:
-                  //   "linear-gradient(90deg, #ff4b4b 0%, #d946ef 100%)",
-                  background: '#8b0000',
+                  background: "#8b0000",
                   border: "none",
                   boxShadow: "0 6px 16px rgba(217,70,239,0.35)",
                   fontWeight: 600,
@@ -535,8 +639,8 @@ export const AuditLogs = () => {
               >
                 Найти
               </Button>
-               <Button
-               danger
+              <Button
+                danger
                 icon={<ReloadOutlined />}
                 onClick={handleReset}
                 style={{ borderRadius: 10, height: 34 }}
@@ -606,25 +710,14 @@ export const AuditLogs = () => {
               loading={isLoading}
               columns={columns}
               dataSource={safeLogs}
-              scroll={{ x: "max-content" }}
+              tableLayout="fixed"
+              scroll={{ x: 1500 }}
               pagination={{
                 current: Math.floor(offset / limit) + 1,
                 pageSize: limit,
                 total,
                 showSizeChanger: false,
                 pageSizeOptions: ["25", "50", "100"],
-                // showTotal: (t) => (
-                //   <span
-                //     style={{
-                //       color: "#ff4d4f",
-                //       fontWeight: 600,
-                //       position: "relative",
-                //       top: 2,
-                //     }}
-                //   >
-                //     Всего записей: {t}
-                //   </span>
-                // ),
                 style: { marginTop: 16 },
               }}
               onChange={handleTableChange}

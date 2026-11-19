@@ -14,6 +14,13 @@ export const APPROVAL_STATUS_MAP = {
   accepted: { label: "Принято", color: "green" },
   rejected: { label: "Отклонено", color: "red" },
   declined: { label: "Отклонено", color: "red" },
+  
+  // --- ДОБАВЛЕННЫЙ СТАТУС ---
+  rejected_currency_control: { 
+    label: "Отклонено валютным контролем", 
+    color: "red" 
+  },
+  
   archived: { label: "В архиве", color: "default" },
 };
 
@@ -40,5 +47,23 @@ export const ENTITY_TYPE_MAP = {
   invoice: { label: "Инвойс", color: "blue" },
   gtd: { label: "ГТД", color: "green" },
   additional_agreement: { label: "Доп. соглашение", color: "purple" },
-  payment_order: {label: "Платежный поручения", color: "yellow"},
+  payment_order: { label: "Платежное поручение", color: "yellow" },
+};
+
+// === Сущности для журнала аудита (полный словарь) ===
+export const AUDIT_ENTITY_MAP = {
+  contract: "Контракт",
+  invoice: "Инвойс",
+  company: "Компания",
+  branch: "Филиал",
+  additional_agreement: "Доп. соглашение",
+  gtd: "ГТД",
+  payment_order: "Платёжное поручение",
+  user: "Пользователь",
+  // --- НОВЫЕ СУЩНОСТИ ---
+  access_request: "Запрос на доступ",
+  session: "Сессия",
+  endpoint: "Эндпоинт",
+  currency_control_permissions: "Права валютного контроля",
+  pre_auth: "Предварительная авторизация",
 };

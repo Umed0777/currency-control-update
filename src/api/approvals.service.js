@@ -85,11 +85,33 @@ export const fetchCurrencyControlPermissions = async () => {
   return data;
 };
 
+// НОВОЕ: Поиск сотрудников для выдачи прав
+export const searchCurrencyControlUsers = async (query) => {
+  const { data } = await API_URL_AUTH.get(
+    `${COMPLIANCE_URL}/permissions/currency-control/users`,
+    { params: { q: query } }
+  );
+  return data;
+};
+
 export const grantCurrencyControlPermission = async (payload) => {
   const { data } = await API_URL_AUTH.post(
     `${COMPLIANCE_URL}/permissions/currency-control`,
     {
       login: payload.login,
+      can_create: !!payload.can_create,
+      can_edit: !!payload.can_edit,
+      can_delete: !!payload.can_delete,
+    }
+  );
+  return data;
+};
+
+// НОВОЕ: Обновление прав (PUT)
+export const updateCurrencyControlPermission = async (login, payload) => {
+  const { data } = await API_URL_AUTH.put(
+    `${COMPLIANCE_URL}/permissions/currency-control/${login}`,
+    {
       can_create: !!payload.can_create,
       can_edit: !!payload.can_edit,
       can_delete: !!payload.can_delete,

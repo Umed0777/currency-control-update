@@ -9,6 +9,9 @@ import {
   fetchCurrencyControlPermissions,
   grantCurrencyControlPermission,
   revokeCurrencyControlPermission,
+  // Новые импорты
+  searchCurrencyControlUsers,
+  updateCurrencyControlPermission,
 } from "../api/approvals.service";
 
 // Все типы документов, которые должны показываться при фильтре "Все типы"
@@ -36,8 +39,8 @@ const sliceByPage = (all, page, pageSize) =>
 
 export const useApprovalsStore = create((set, get) => ({
   // === Список на согласовании ===
-  allItems: [], // все загруженные записи (объединённые по типам)
-  items: [], // записи текущей страницы
+  allItems: [],
+  items: [],
   total: 0,
   page: 1,
   pageSize: 20,
@@ -60,6 +63,10 @@ export const useApprovalsStore = create((set, get) => ({
   // === Права ВК ===
   permissions: [],
   permissionsLoading: false,
+  
+  // === Поиск пользователей ===
+  userSearchResults: [],
+  userSearchLoading: false,
 
   // ============================================================
   // СПИСОК НА СОГЛАСОВАНИИ (все типы документов)
@@ -68,9 +75,6 @@ export const useApprovalsStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       const { stage, entity_type, ...rest } = filters;
-
-      // Если выбран конкретный тип — грузим только его,
-      // если "Все типы" — грузим каждый тип отдельно и объединяем
       const types = entity_type ? [entity_type] : ALL_ENTITY_TYPES;
 
       const results = await Promise.allSettled(
@@ -98,12 +102,10 @@ export const useApprovalsStore = create((set, get) => ({
         );
       });
 
-      // Если упали все запросы — показываем ошибку
       if (merged.length === 0 && firstError) {
         throw firstError;
       }
 
-      // Убираем дубли (на случай, если бэкенд игнорирует entity_type)
       const seen = new Set();
       const unique = merged.filter((x) => {
         const key = `${x.entity_type}-${x.entity_id ?? x.id}`;
@@ -112,7 +114,6 @@ export const useApprovalsStore = create((set, get) => ({
         return true;
       });
 
-      // Сначала новые
       unique.sort(
         (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
       );
@@ -288,10 +289,41 @@ export const useApprovalsStore = create((set, get) => ({
     }
   },
 
+  // НОВОЕ: Поиск пользователей
+  searchUsers: async (query) => {
+    if (!query) {
+      set({ userSearchResults: [] });
+      return;
+    }
+    set({ userSearchLoading: true });
+    try {
+      const data = await searchCurrencyControlUsers(query);
+      const list = toArray(data);
+      set({ userSearchResults: list, userSearchLoading: false });
+      return list;
+    } catch (err) {
+      set({ userSearchLoading: false });
+      // Тихо игнорируем ошибку поиска, чтобы не спамить пользователя
+    }
+  },
+
+  // НОВОЕ: Обновление прав
+  updatePermission: async (login, payload) => {
+    set({ submitting: true });
+    try {
+      const result = await updateCurrencyControlPermission(login, payload);
+      await get().fetchPermissions();
+      set({ submitting: false });
+      return result;
+    } catch (err) {
+      set({ submitting: false });
+      throw err;
+    }
+  },
+
   // ============================================================
   // Сброс
   // ============================================================
-  // Пагинация идёт по уже загруженному списку
   setPage: (page) => {
     const { allItems, pageSize } = get();
     set({ page, items: sliceByPage(allItems, page, pageSize) });
@@ -312,6 +344,7 @@ export const useApprovalsStore = create((set, get) => ({
       gtdItems: [],
       gtdTotal: 0,
       permissions: [],
+      userSearchResults: [],
       error: null,
     }),
 }));

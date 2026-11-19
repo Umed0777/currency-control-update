@@ -146,7 +146,7 @@ const BranchesManagePage = () => {
       await removeBranch(branchId);
       message.success("Филиал удалён");
     } catch {
-      message.error("Не удалось удалить филиал");
+      // message.error("Не удалось удалить филиал");
     }
   };
 

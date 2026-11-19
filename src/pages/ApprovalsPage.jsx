@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Table,
@@ -22,6 +22,7 @@ import {
   Divider,
   Tabs,
   DatePicker,
+  // Новые иконки
 } from "antd";
 
 import {
@@ -41,9 +42,11 @@ import {
   ClockCircleOutlined,
   CloseOutlined,
   RiseOutlined,
+   EditOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
+import debounce from "lodash/debounce"; // Убедитесь, что lodash установлен: npm i lodash
 import { useApprovalsStore } from "../store/useApprovalsStore";
 import { useAuthStore } from "../store/useAuth";
 
@@ -51,13 +54,6 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const RED = "#8b0000";
-
-// === Этапы согласования ===
-const STAGE_MAP = {
-  currency_control: { label: "Валютный контроль", color: "gold" },
-  compliance: { label: "Комплаенс", color: "purple" },
-  revision: { label: "На доработке", color: "orange" },
-};
 
 // === Типы документов (для отображения) ===
 const ENTITY_TYPE_MAP = {
@@ -113,6 +109,19 @@ const DECISION_MAP = {
   revision: { label: "На доработке", color: "orange" },
 };
 
+// Опции Да/Нет для прав доступа (строки надёжнее, чем boolean в Select)
+const YES_NO_OPTIONS = [
+  { value: "yes", label: "Да" },
+  { value: "no", label: "Нет" },
+];
+
+// ============================================================
+// РОЛИ: кто что может делать на странице
+// ============================================================
+const ADMIN_ROLES = ["admin", "administrator", "администратор"];
+const COMPLIANCE_ROLES = ["compliance", "комплаенс"];
+const CURRENCY_CONTROL_ROLES = ["currency_control", "валютный контроль"];
+
 const formatDateTime = (v) => {
   if (!v) return "—";
   const d = new Date(v);
@@ -149,11 +158,22 @@ const getPersonName = (p) => {
   return [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
 };
 
+const errorText = (e, fallback) =>
+  e?.response?.data?.error ||
+  e?.response?.data?.message ||
+  e?.response?.data?.detail ||
+  e?.message ||
+  fallback;
+
 // Вспомогательная функция для отображения статуса в модалке
 const renderDecision = (decision) => {
   if (!decision) return "—";
   const info = DECISION_MAP[decision] || { label: decision, color: "default" };
-  return <Tag color={info.color} style={{ borderRadius: 6, margin: 0 }}>{info.label}</Tag>;
+  return (
+    <Tag color={info.color} style={{ borderRadius: 6, margin: 0 }}>
+      {info.label}
+    </Tag>
+  );
 };
 
 const ApprovalsPage = () => {
@@ -161,17 +181,15 @@ const ApprovalsPage = () => {
   const { role, branchId: userBranchId } = useAuthStore();
   const normalizedRole = String(role || "").toLowerCase();
 
-  const isAdmin =
-    normalizedRole === "admin" ||
-    normalizedRole === "administrator" ||
-    normalizedRole === "администратор";
+  const isAdmin = ADMIN_ROLES.includes(normalizedRole);
+  const isCompliance = COMPLIANCE_ROLES.includes(normalizedRole);
+  const isCurrencyControl = CURRENCY_CONTROL_ROLES.includes(normalizedRole);
 
-  const canCompliance = isAdmin || normalizedRole === "compliance";
-  const canCurrencyControl = isAdmin || normalizedRole === "currency_control";
-  const canReviewGtd =
-    isAdmin ||
-    normalizedRole === "compliance" ||
-    normalizedRole === "currency_control";
+  const canCompliance = isAdmin || isCompliance;
+  const canCurrencyControl = isAdmin || isCurrencyControl;
+  const canReviewGtd = isAdmin || isCompliance || isCurrencyControl;
+  const canViewPermissions = isAdmin || isCompliance || isCurrencyControl;
+  const canManagePermissions = isAdmin || isCompliance;
 
   const {
     items,
@@ -201,6 +219,11 @@ const ApprovalsPage = () => {
     setPage,
     clearError,
     clearDetail,
+    // Новые методы из стора
+    searchUsers,
+    userSearchResults,
+    userSearchLoading,
+    updatePermission,
   } = useApprovalsStore();
 
   const [activeTab, setActiveTab] = useState("pending");
@@ -210,6 +233,12 @@ const ApprovalsPage = () => {
   const [isDecisionOpen, setIsDecisionOpen] = useState(false);
   const [isGrantOpen, setIsGrantOpen] = useState(false);
   const [decisionType, setDecisionType] = useState("compliance");
+  
+  // Стейт для редактирования прав
+  const [editingPermission, setEditingPermission] = useState(null);
+
+  const [currentRecord, setCurrentRecord] = useState(null);
+  const [decisionSubmitting, setDecisionSubmitting] = useState(false);
 
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [reviewingGtd, setReviewingGtd] = useState(null);
@@ -221,10 +250,20 @@ const ApprovalsPage = () => {
   const [grantForm] = Form.useForm();
   const [reviewForm] = Form.useForm();
 
-  // Показываем только ГТД и платёжные поручения
+  // Дебаунс для поиска пользователей
+  const debouncedSearch = useMemo(
+    () =>
+      debounce((query) => {
+        if (query) searchUsers(query);
+      }, 500),
+    [searchUsers]
+  );
+
   const visibleItems = (Array.isArray(items) ? items : []).filter((r) =>
     ALLOWED_ENTITY_TYPES.includes(r.entity_type),
   );
+
+  const pendingCount = entityTypeFilter ? total : visibleItems.length;
 
   // ============================================================
   // ЭФФЕКТЫ
@@ -235,7 +274,7 @@ const ApprovalsPage = () => {
         () => {},
       );
     }
-    if (activeTab === "permissions" && canCompliance) {
+    if (activeTab === "permissions" && canViewPermissions) {
       fetchPermissions().catch(() => {});
     }
     if (activeTab === "gtd_extensions" && canReviewGtd) {
@@ -262,7 +301,13 @@ const ApprovalsPage = () => {
   // ============================================================
   // PENDING
   // ============================================================
+  const reloadPending = () =>
+    fetchPending({ stage: stageFilter, entity_type: entityTypeFilter }).catch(
+      () => {},
+    );
+
   const handleOpenDetail = async (record) => {
+    setCurrentRecord(record);
     setIsDetailOpen(true);
     try {
       await fetchDetail(record.entity_type, record.entity_id || record.id);
@@ -273,84 +318,118 @@ const ApprovalsPage = () => {
 
   const handleCloseDetail = () => {
     setIsDetailOpen(false);
+    setCurrentRecord(null);
     clearDetail();
   };
 
   const handleOpenDecision = (type) => {
     setDecisionType(type);
-    decisionForm.resetFields();
     setIsDecisionOpen(true);
   };
 
   const handleSubmitDecision = async () => {
+    if (decisionSubmitting) return;
+
     let values;
     try {
       values = await decisionForm.validateFields();
     } catch {
       return;
     }
-    if (!detail) return;
+
+    const entityType = detail?.entity_type || currentRecord?.entity_type;
+    const entityId =
+      detail?.entity_id ||
+      currentRecord?.entity_id ||
+      currentRecord?.id ||
+      detail?.id;
+
+    if (!entityType || !entityId) {
+      message.error("Не удалось определить документ");
+      return;
+    }
 
     const payload = {
       decision: values.decision,
       comment: values.comment || "",
     };
 
+    setDecisionSubmitting(true);
     try {
       if (decisionType === "compliance") {
-        await submitCompliance(
-          detail.entity_type,
-          detail.entity_id || detail.id,
-          payload,
-        );
+        await submitCompliance(entityType, entityId, payload);
         message.success("Решение комплаенса сохранено");
       } else {
-        await submitCurrencyControl(
-          detail.entity_type,
-          detail.entity_id || detail.id,
-          payload,
-        );
+        await submitCurrencyControl(entityType, entityId, payload);
         message.success("Решение валютного контроля сохранено");
       }
       setIsDecisionOpen(false);
       setIsDetailOpen(false);
+      setCurrentRecord(null);
       clearDetail();
-      fetchPending({ stage: stageFilter, entity_type: entityTypeFilter });
+      await reloadPending();
     } catch (e) {
-      message.error(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          "Не удалось сохранить решение",
-      );
+      message.error(errorText(e, "Не удалось сохранить решение"));
+    } finally {
+      setDecisionSubmitting(false);
     }
   };
 
   // ============================================================
-  // PERMISSIONS
+  // PERMISSIONS (Логика обновлена)
   // ============================================================
-  const handleGrantPermission = async () => {
+  
+  // Открытие модалки на создание
+  const handleOpenGrant = () => {
+    setEditingPermission(null);
+    grantForm.resetFields();
+    setIsGrantOpen(true);
+  };
+
+  // Открытие модалки на редактирование
+  const handleOpenEdit = (record) => {
+    setEditingPermission(record);
+    grantForm.setFieldsValue({
+      login: record.login,
+      can_create: record.can_create ? "yes" : "no",
+      can_edit: record.can_edit ? "yes" : "no",
+      can_delete: record.can_delete ? "yes" : "no",
+    });
+    setIsGrantOpen(true);
+  };
+
+  // Сохранение (Create или Update)
+  const handleSavePermission = async () => {
     let values;
     try {
       values = await grantForm.validateFields();
     } catch {
       return;
     }
+
+    const payload = {
+      login: values.login,
+      can_create: values.can_create === "yes",
+      can_edit: values.can_edit === "yes",
+      can_delete: values.can_delete === "yes",
+    };
+
     try {
-      await grantPermission({
-        login: values.login,
-        can_create: values.can_create,
-        can_edit: values.can_edit,
-        can_delete: values.can_delete,
-      });
-      message.success("Доступ выдан");
+      if (editingPermission) {
+        // Редактирование (PUT)
+        await updatePermission(editingPermission.login, payload);
+        message.success("Права обновлены");
+      } else {
+        // Создание (POST)
+        await grantPermission(payload);
+        message.success("Доступ выдан");
+      }
       setIsGrantOpen(false);
       grantForm.resetFields();
+      setEditingPermission(null);
+      await fetchPermissions().catch(() => {});
     } catch (e) {
-      message.error(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          "Не удалось выдать доступ",
-      );
+      message.error(errorText(e, "Не удалось сохранить права"));
     }
   };
 
@@ -358,12 +437,9 @@ const ApprovalsPage = () => {
     try {
       await revokePermission(login);
       message.success("Доступ отозван");
+      await fetchPermissions().catch(() => {});
     } catch (e) {
-      message.error(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          "Не удалось отозвать доступ",
-      );
+      message.error(errorText(e, "Не удалось отозвать доступ"));
     }
   };
 
@@ -400,11 +476,7 @@ const ApprovalsPage = () => {
       closeReviewModal();
       await fetchGtdPending(userBranchId, gtdPage, gtdPageSize);
     } catch (e) {
-      message.error(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          "Не удалось рассмотреть заявку",
-      );
+      message.error(errorText(e, "Не удалось рассмотреть заявку"));
     } finally {
       setReviewSubmitting(false);
     }
@@ -539,7 +611,7 @@ const ApprovalsPage = () => {
   ];
 
   // ============================================================
-  // КОЛОНКИ: PERMISSIONS
+  // КОЛОНКИ: PERMISSIONS (Обновленные)
   // ============================================================
   const permissionsColumns = [
     {
@@ -609,20 +681,31 @@ const ApprovalsPage = () => {
       width: 170,
       render: (v) => <Text type="secondary">{formatDateTime(v)}</Text>,
     },
-    ...(canCompliance
+    ...(canManagePermissions
       ? [
           {
             title: "Действие",
             key: "actions",
-            width: 100,
+            width: 120,
             align: "right",
             render: (_, record) => (
-              <Button
-                danger
-                type="text"
-                icon={<DeleteOutlined />}
-                onClick={() => handleRevokePermission(record.login)}
-              />
+              <Space size={0}>
+                <Tooltip title="Редактировать">
+                  <Button
+                    type="text"
+                    icon={<EditOutlined style={{ color: "#8b0000" }} />}
+                    onClick={() => handleOpenEdit(record)}
+                  />
+                </Tooltip>
+                <Tooltip title="Отозвать">
+                   <Button
+                    danger
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    onClick={() => handleRevokePermission(record.login)}
+                  />
+                </Tooltip>
+              </Space>
             ),
           },
         ]
@@ -729,7 +812,7 @@ const ApprovalsPage = () => {
           .filter(Boolean)
           .join(" ");
         return (
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <Text style={{ fontSize: 12, fontWeight: 600 }}>
               {fullName || "—"}
             </Text>
@@ -785,7 +868,7 @@ const ApprovalsPage = () => {
                     icon={<CheckOutlined style={{ color: "#389e0d" }} />}
                     onClick={() => {
                       setReviewingGtd(record);
-                      reviewForm.resetFields();
+                      setIsReviewOpen(true);
                       reviewForm.setFieldsValue({
                         decision: "approve",
                         approved_deadline: record.requested_deadline
@@ -793,7 +876,6 @@ const ApprovalsPage = () => {
                           : null,
                         comment: "",
                       });
-                      setIsReviewOpen(true);
                     }}
                   />
                 </Tooltip>
@@ -804,12 +886,12 @@ const ApprovalsPage = () => {
                     icon={<CloseOutlined style={{ color: "#cf1322" }} />}
                     onClick={() => {
                       setReviewingGtd(record);
-                      reviewForm.resetFields();
+                      setIsReviewOpen(true);
                       reviewForm.setFieldsValue({
                         decision: "reject",
+                        approved_deadline: null,
                         comment: "",
                       });
-                      setIsReviewOpen(true);
                     }}
                   />
                 </Tooltip>
@@ -830,9 +912,9 @@ const ApprovalsPage = () => {
         <Space size={6}>
           <AuditOutlined style={{ color: RED }} />
           <span style={{ color: RED, fontWeight: 600 }}>На согласовании</span>
-          {total > 0 && (
+          {pendingCount > 0 && (
             <Badge
-              count={total}
+              count={pendingCount}
               style={{ backgroundColor: RED, boxShadow: "none" }}
             />
           )}
@@ -847,7 +929,7 @@ const ApprovalsPage = () => {
               border: "none",
               boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
             }}
-            bodyStyle={{ padding: 20 }}
+            styles={{ body: { padding: 20 } }}
           >
             <Row gutter={[16, 16]}>
               <Col xs={24} md={12}>
@@ -865,7 +947,7 @@ const ApprovalsPage = () => {
                 <Select
                   value={stageFilter}
                   onChange={(v) => {
-                    setStageFilter(v);
+                    setStageFilter(v ?? "");
                     setPage(1);
                   }}
                   style={{
@@ -922,7 +1004,7 @@ const ApprovalsPage = () => {
               boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
               overflow: "hidden",
             }}
-            bodyStyle={{ padding: 0 }}
+            styles={{ body: { padding: 0 } }}
           >
             <div
               style={{
@@ -951,7 +1033,7 @@ const ApprovalsPage = () => {
                   color: RED,
                 }}
               >
-                Всего: {entityTypeFilter ? total : visibleItems.length}
+                Всего: {pendingCount}
               </Tag>
             </div>
 
@@ -970,9 +1052,7 @@ const ApprovalsPage = () => {
               ) : (
                 <Table
                   className="red-table"
-                  rowKey={(r) =>
-                    `${r.entity_type}-${r.entity_id ?? r.id}-${Math.random()}`
-                  }
+                  rowKey={(r) => `${r.entity_type}-${r.entity_id ?? r.id}`}
                   loading={loading}
                   columns={pendingColumns}
                   dataSource={visibleItems}
@@ -1005,8 +1085,8 @@ const ApprovalsPage = () => {
     },
   ];
 
-  // Вкладка прав ВК
-  if (canCompliance) {
+  // Вкладка прав ВК (видят: админ, комплаенс, валютный контроль)
+  if (canViewPermissions) {
     tabItems.push({
       key: "permissions",
       label: (
@@ -1023,7 +1103,7 @@ const ApprovalsPage = () => {
             boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
             overflow: "hidden",
           }}
-          bodyStyle={{ padding: 0 }}
+          styles={{ body: { padding: 0 } }}
         >
           <div
             style={{
@@ -1046,20 +1126,22 @@ const ApprovalsPage = () => {
               <Tag color="red" style={{ borderRadius: 8 }}>
                 Всего: {permissions.length}
               </Tag>
-              <Button
-                danger
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setIsGrantOpen(true)}
-                style={{
-                  borderRadius: 10,
-                  height: 36,
-                  background: RED,
-                  border: "none",
-                }}
-              >
-                Выдать доступ
-              </Button>
+              {canManagePermissions && (
+                <Button
+                  danger
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleOpenGrant}
+                  style={{
+                    borderRadius: 10,
+                    height: 36,
+                    background: RED,
+                    border: "none",
+                  }}
+                >
+                  Выдать доступ
+                </Button>
+              )}
             </Space>
           </div>
 
@@ -1094,106 +1176,6 @@ const ApprovalsPage = () => {
                       description={
                         <span style={{ color: "#999" }}>
                           Нет выданных разрешений
-                        </span>
-                      }
-                    />
-                  ),
-                }}
-              />
-            )}
-          </div>
-        </Card>
-      ),
-    });
-  }
-
-  // Вкладка заявок на продление ГТД
-  if (canReviewGtd) {
-    tabItems.push({
-      key: "gtd_extensions",
-      label: (
-        <Space size={6}>
-          <FieldTimeOutlined style={{ color: RED }} />
-          <span style={{ color: RED, fontWeight: 600 }}>Продление ГТД</span>
-        </Space>
-      ),
-      children: (
-        <Card
-          style={{
-            borderRadius: 18,
-            border: "none",
-            boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
-            overflow: "hidden",
-          }}
-          bodyStyle={{ padding: 0 }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "16px 20px",
-              background:
-                "linear-gradient(90deg, #fff5f5 0%, #ffffff 60%, #fff5f5 100%)",
-              borderBottom: "1px solid rgba(139,0,0,0.06)",
-            }}
-          >
-            <Space size={10}>
-              <FieldTimeOutlined style={{ color: RED, fontSize: 16 }} />
-              <Text strong style={{ fontSize: 15, color: RED }}>
-                Заявки на продление срока ГТД
-              </Text>
-            </Space>
-            <Space>
-              <Tag
-                color="red"
-                style={{
-                  borderRadius: 8,
-                  padding: "2px 12px",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  color: RED,
-                }}
-              >
-                Всего: {gtdTotal}
-              </Tag>
-            </Space>
-          </div>
-
-          <div style={{ padding: 20 }}>
-            {gtdLoading && gtdItems.length === 0 ? (
-              <div
-                style={{
-                  minHeight: 300,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <Spin size="middle" />
-              </div>
-            ) : (
-              <Table
-                className="red-table"
-                rowKey={(r) => String(r.id ?? Math.random())}
-                loading={gtdLoading}
-                columns={gtdColumns}
-                dataSource={gtdItems}
-                scroll={{ x: "max-content" }}
-                pagination={{
-                  current: gtdPage,
-                  pageSize: gtdPageSize,
-                  total: gtdTotal,
-                  showSizeChanger: false,
-                  onChange: (p) => setGtdPage(p),
-                }}
-                locale={{
-                  emptyText: (
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={
-                        <span style={{ color: "#999" }}>
-                          Заявок на продление нет
                         </span>
                       }
                     />
@@ -1253,14 +1235,13 @@ const ApprovalsPage = () => {
             icon={<ReloadOutlined />}
             onClick={() => {
               if (activeTab === "pending") {
-                fetchPending({
-                  stage: stageFilter,
-                  entity_type: entityTypeFilter,
-                });
+                reloadPending();
               } else if (activeTab === "permissions") {
-                fetchPermissions();
+                fetchPermissions().catch(() => {});
               } else if (activeTab === "gtd_extensions") {
-                fetchGtdPending(userBranchId, gtdPage, gtdPageSize);
+                fetchGtdPending(userBranchId, gtdPage, gtdPageSize).catch(
+                  () => {},
+                );
               }
             }}
             loading={loading || permissionsLoading || gtdLoading}
@@ -1299,6 +1280,7 @@ const ApprovalsPage = () => {
         }}
       />
 
+      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1361,13 +1343,15 @@ const ApprovalsPage = () => {
               bordered
               column={2}
               size="small"
-              labelStyle={{
-                background: "#fafafa",
-                fontWeight: 600,
-                fontSize: 12,
-                width: 180,
+              styles={{
+                label: {
+                  background: "#fafafa",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  width: 180,
+                },
+                content: { fontSize: 13 },
               }}
-              contentStyle={{ fontSize: 13 }}
             >
               <Descriptions.Item label="Тип">
                 <Tag
@@ -1462,6 +1446,8 @@ const ApprovalsPage = () => {
           </>
         )}
       </Modal>
+
+      {/* ===== МОДАЛКА: РЕШЕНИЕ ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1475,6 +1461,7 @@ const ApprovalsPage = () => {
         }
         open={isDecisionOpen}
         onCancel={() => setIsDecisionOpen(false)}
+        afterClose={() => decisionForm.resetFields()}
         footer={[
           <Button
             style={{ background: RED }}
@@ -1482,7 +1469,7 @@ const ApprovalsPage = () => {
             type="primary"
             danger
             icon={<CheckOutlined />}
-            loading={submitting}
+            loading={decisionSubmitting || submitting}
             onClick={handleSubmitDecision}
           >
             Сохранить
@@ -1494,7 +1481,12 @@ const ApprovalsPage = () => {
         width={600}
         destroyOnHidden
       >
-        <Form form={decisionForm} layout="vertical" autoComplete="off">
+        <Form
+          form={decisionForm}
+          layout="vertical"
+          autoComplete="off"
+          preserve={false}
+        >
           <Form.Item
             label="Решение"
             name="decision"
@@ -1533,18 +1525,23 @@ const ApprovalsPage = () => {
         </Form>
       </Modal>
 
-      {/* ===== МОДАЛКА: ВЫДАТЬ ДОСТУП ВК ===== */}
+      {/* ===== МОДАЛКА: ВЫДАТЬ/РЕДАКТИРОВАТЬ ДОСТУП ВК ===== */}
       <Modal
         title={
           <Space size={10}>
             <KeyOutlined style={{ color: RED, fontSize: 18 }} />
             <span style={{ fontWeight: 700, color: RED }}>
-              Выдать доступ валютному контролю
+              {editingPermission
+                ? "Редактировать права доступа"
+                : "Выдать доступ валютному контролю"}
             </span>
           </Space>
         }
         open={isGrantOpen}
-        onCancel={() => setIsGrantOpen(false)}
+        onCancel={() => {
+          setIsGrantOpen(false);
+          setEditingPermission(null);
+        }}
         footer={[
           <Button
             key="submit"
@@ -1552,10 +1549,10 @@ const ApprovalsPage = () => {
             danger
             icon={<CheckOutlined />}
             loading={submitting}
-            onClick={handleGrantPermission}
+            onClick={handleSavePermission}
             style={{ background: RED }}
           >
-            Выдать
+            {editingPermission ? "Сохранить" : "Выдать"}
           </Button>,
           <Button key="cancel" danger onClick={() => setIsGrantOpen(false)}>
             Отмена
@@ -1564,61 +1561,81 @@ const ApprovalsPage = () => {
         width={520}
         destroyOnHidden
       >
-        <Form form={grantForm} layout="vertical" autoComplete="off">
+        <Form
+          form={grantForm}
+          layout="vertical"
+          autoComplete="off"
+          initialValues={{ can_create: "no", can_edit: "no", can_delete: "no" }}
+        >
           <Form.Item
-            label="Логин"
+            label="Логин сотрудника"
             name="login"
-            rules={[{ required: true, message: "Введите логин" }]}
+            rules={[{ required: true, message: "Выберите или введите логин" }]}
+            tooltip="Начните вводить имя или логин для поиска"
           >
-            <Input
-              placeholder="Введите логин сотрудника"
-              style={{ borderRadius: 10 }}
-            />
+            {editingPermission ? (
+              // При редактировании логин менять нельзя
+              <Input disabled style={{ borderRadius: 10 }} />
+            ) : (
+              // При создании - поиск с автокомплитом
+              <Select
+                showSearch
+                placeholder="Поиск по логину или ФИО..."
+                defaultActiveFirstOption={false}
+                showArrow={false}
+                filterOption={false} // Отключаем локальную фильтрацию, ищем на бэке
+                onSearch={debouncedSearch}
+                notFoundContent={userSearchLoading ? <Spin size="small" /> : null}
+                options={(userSearchResults || []).map((u) => ({
+                  value: u.login,
+                  label: (
+                    <Space>
+                      <Text strong>{u.login}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {[u.last_name, u.first_name].filter(Boolean).join(" ")}
+                      </Text>
+                    </Space>
+                  ),
+                }))}
+                style={{ width: "100%" }}
+              />
+            )}
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item
-                label="Создание"
-                name="can_create"
-                valuePropName="checked"
-              >
+              <Form.Item label="Создание" name="can_create">
                 <Select
-                  options={[
-                    { value: true, label: "Да" },
-                    { value: false, label: "Нет" },
-                  ]}
-                  placeholder="—"
+                  options={YES_NO_OPTIONS}
+                  style={{
+                    width: "100%",
+                    border: `1px solid ${RED}`,
+                    borderRadius: 6,
+                  }}
                 />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                label="Редактирование"
-                name="can_edit"
-                valuePropName="checked"
-              >
+              <Form.Item label="Редактирование" name="can_edit">
                 <Select
-                  options={[
-                    { value: true, label: "Да" },
-                    { value: false, label: "Нет" },
-                  ]}
-                  placeholder="—"
+                  options={YES_NO_OPTIONS}
+                  style={{
+                    width: "100%",
+                    border: `1px solid ${RED}`,
+                    borderRadius: 6,
+                  }}
                 />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                label="Удаление"
-                name="can_delete"
-                valuePropName="checked"
-              >
+              <Form.Item label="Удаление" name="can_delete">
                 <Select
-                  options={[
-                    { value: true, label: "Да" },
-                    { value: false, label: "Нет" },
-                  ]}
-                  placeholder="—"
+                  options={YES_NO_OPTIONS}
+                  style={{
+                    width: "100%",
+                    border: `1px solid ${RED}`,
+                    borderRadius: 6,
+                  }}
                 />
               </Form.Item>
             </Col>
@@ -1672,7 +1689,12 @@ const ApprovalsPage = () => {
         style={{ top: 60 }}
         destroyOnHidden
       >
-        <Form form={reviewForm} layout="vertical" autoComplete="off">
+        <Form
+          form={reviewForm}
+          layout="vertical"
+          autoComplete="off"
+          preserve={false}
+        >
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="Текущий дедлайн">

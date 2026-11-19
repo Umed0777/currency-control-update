@@ -41,13 +41,13 @@ const Layout = () => {
     fetchBranchesAll();
   }, [fetchBranchesAll]);
 
-  if (error) {
-    return (
-      <div style={{ color: "#f00", padding: 20, textAlign: "center" }}>
-        Ошибка: {error}
-      </div>
-    );
-  }
+  // if (error) {
+  //   return (
+  //     <div style={{ color: "#f00", padding: 20, textAlign: "center" }}>
+  //       Ошибка: {error}
+  //     </div>
+  //   );
+  // }
 
   const normalizedRole = String(role || "").toLowerCase();
   const canViewAllBranches = ALL_BRANCHES_ROLES.includes(normalizedRole);

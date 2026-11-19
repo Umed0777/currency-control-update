@@ -1,9 +1,15 @@
 import axios from "axios";
 
+const BASE_URL = import.meta.env.VITE_API_URL;
+
 const API_URL_AUTH = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL: BASE_URL,
   timeout: 10000,
 });
+
+const REFRESH_BEFORE_MS = 60_000; // обновлять за 60 сек до истечения
+const EXPIRY_SKEW_MS = 10_000; // считать токен просроченным за 10 сек до exp
+const RETRY_DELAY_MS = 15_000; // повтор, если обновление упало из-за сети
 
 // =====================================================
 // ДЕКОДИРОВАНИЕ JWT (для проверки срока)
@@ -27,24 +33,33 @@ const getTokenExp = (token) => {
   }
 };
 
+// Токен ещё годен? (если срок прочитать нельзя — не блокируем запрос)
+const isTokenFresh = (token) => {
+  const exp = getTokenExp(token);
+  return !exp || exp - Date.now() > EXPIRY_SKEW_MS;
+};
+
 // =====================================================
-// STATE ДЛЯ ОБНОВЛЕНИЯ ТОКЕНА
+// STATE
 // =====================================================
-let isRefreshing = false;
 let refreshPromise = null;
-let pendingQueue = [];
 let refreshTimer = null;
 
-const processQueue = (error, token = null) => {
-  pendingQueue.forEach(({ resolve, reject }) => {
-    if (error) {
-      reject(error);
-    } else {
-      resolve(token);
-    }
-  });
-  pendingQueue = [];
+const authError = (message) => Object.assign(new Error(message), { isAuthError: true });
+
+// Разлогин нужен ТОЛЬКО если сервер отклонил refresh_token.
+// Сеть, таймаут, 5xx — это НЕ повод показывать логин.
+const isAuthFailure = (error) => {
+  if (error?.isAuthError) return true;
+  const status = error?.response?.status;
+  return status === 400 || status === 401 || status === 403;
 };
+
+const isAuthEndpoint = (url = "") =>
+  url.includes("/auth/login") ||
+  url.includes("/auth/logout") ||
+  url.includes("/auth/refresh") ||
+  url.includes("/auth/request-access");
 
 // =====================================================
 // ОЧИСТКА ДАННЫХ
@@ -63,6 +78,13 @@ const clearAuthData = () => {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("auth:logout"));
+  }
+};
+
+const forceLogout = () => {
+  clearAuthData();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.replace("/login");
   }
 };
 
@@ -91,72 +113,56 @@ const persistTokens = (data) => {
 };
 
 // =====================================================
-// REQUEST INTERCEPTOR
-// =====================================================
-API_URL_AUTH.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      const exp = getTokenExp(token);
-      // Если токен просрочен — не отправляем, сразу чистим
-      if (exp && exp < Date.now()) {
-        clearAuthData();
-        return Promise.reject(new Error("Token expired"));
-      }
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// =====================================================
 // ОБНОВЛЕНИЕ ТОКЕНА (ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ)
+// Все вызовы делят один запрос. Здесь НЕТ разлогина —
+// решение принимают вызывающие, смотря на тип ошибки.
 // =====================================================
-const doRefresh = async () => {
+const doRefresh = () => {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
     const refreshToken = localStorage.getItem("refresh_token");
-    if (!refreshToken) {
-      clearAuthData();
-      throw new Error("Нет refresh токена");
-    }
+    if (!refreshToken) throw authError("Нет refresh токена");
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/refresh`,
+      const { data } = await axios.post(
+        `${BASE_URL}/auth/refresh`,
         { refresh_token: refreshToken },
         { timeout: 10000 }
       );
 
-      const data = response.data;
-      if (!data?.access_token) {
-        clearAuthData();
-        throw new Error("Сервер не вернул новый access_token");
-      }
+      if (!data?.access_token) throw authError("Сервер не вернул новый access_token");
 
       persistTokens(data);
       return data;
     } catch (error) {
-      // ЛЮБАЯ ошибка обновления = разлогин
-      clearAuthData();
+      // Другая вкладка могла уже обновить токены (refresh_token одноразовый)
+      const currentRefresh = localStorage.getItem("refresh_token");
+      const currentAccess = localStorage.getItem("access_token");
+      if (
+        currentRefresh &&
+        currentRefresh !== refreshToken &&
+        currentAccess &&
+        isTokenFresh(currentAccess)
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("auth:refreshed", { detail: { access_token: currentAccess } })
+        );
+        return { access_token: currentAccess };
+      }
       throw error;
     }
-  })();
-
-  try {
-    return await refreshPromise;
-  } finally {
+  })().finally(() => {
     refreshPromise = null;
-  }
+  });
+
+  return refreshPromise;
 };
 
 // =====================================================
 // ПЛАНИРОВЩИК ОБНОВЛЕНИЙ
 // =====================================================
-export const scheduleTokenRefresh = () => {
+export const scheduleTokenRefresh = (delayOverride) => {
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
@@ -171,12 +177,12 @@ export const scheduleTokenRefresh = () => {
     return;
   }
 
-  const now = Date.now();
-  const refreshIn = Math.max(expiresAt - now - 60_000, 0);
+  const delay =
+    typeof delayOverride === "number"
+      ? delayOverride
+      : Math.max(expiresAt - Date.now() - REFRESH_BEFORE_MS, 0);
 
-  refreshTimer = setTimeout(() => {
-    refreshNow();
-  }, refreshIn);
+  refreshTimer = setTimeout(refreshNow, delay);
 };
 
 const refreshNow = async () => {
@@ -184,14 +190,39 @@ const refreshNow = async () => {
     await doRefresh();
     scheduleTokenRefresh();
   } catch (error) {
-    console.error("Token refresh failed:", error?.message);
-    // ВСЕГДА чистим и редиректим при любой ошибке
-    clearAuthData();
-    if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-      window.location.replace("/login");
+    if (isAuthFailure(error)) {
+      forceLogout(); // refresh_token не принят — только тогда на /login
+    } else {
+      console.warn("Не удалось обновить токен (сеть/сервер), повтор через 15 сек:", error?.message);
+      scheduleTokenRefresh(RETRY_DELAY_MS);
     }
   }
 };
+
+// =====================================================
+// REQUEST INTERCEPTOR
+// Если токен истёк — ОБНОВЛЯЕМ его, а не разлогиниваем
+// =====================================================
+API_URL_AUTH.interceptors.request.use(async (config) => {
+  let token = localStorage.getItem("access_token");
+
+  if (token && !isAuthEndpoint(config.url) && !isTokenFresh(token)) {
+    try {
+      const data = await doRefresh();
+      token = data.access_token;
+      scheduleTokenRefresh();
+    } catch (error) {
+      if (isAuthFailure(error)) forceLogout();
+      return Promise.reject(error);
+    }
+  }
+
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // =====================================================
 // RESPONSE INTERCEPTOR (ОБРАБОТКА 401)
@@ -200,64 +231,28 @@ API_URL_AUTH.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config || {};
-    const url = originalRequest.url || "";
-
-    // Не пытаемся обновить токен для эндпоинтов авторизации
-    const isAuthEndpoint =
-      url.includes("/auth/login") ||
-      url.includes("/auth/logout") ||
-      url.includes("/auth/refresh") ||
-      url.includes("/auth/request-access");
 
     if (
       error.response?.status !== 401 ||
-      isAuthEndpoint ||
+      isAuthEndpoint(originalRequest.url) ||
       originalRequest._retry
     ) {
       return Promise.reject(error);
     }
 
-    // Если обновление уже идет, ставим запрос в очередь
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        pendingQueue.push({ resolve, reject });
-      })
-        .then((token) => {
-          originalRequest.headers = originalRequest.headers || {};
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          return API_URL_AUTH(originalRequest);
-        })
-        .catch((refreshError) => Promise.reject(refreshError));
-    }
-
     originalRequest._retry = true;
-    isRefreshing = true;
 
     try {
+      // Параллельные 401 делят один refresh-запрос (см. doRefresh)
       const data = await doRefresh();
-      const newAccessToken = data.access_token;
-
-      processQueue(null, newAccessToken);
-
-      originalRequest.headers = originalRequest.headers || {};
-      originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-
       scheduleTokenRefresh();
 
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
       return API_URL_AUTH(originalRequest);
     } catch (refreshError) {
-      // Если обновление не удалось — отклоняем все запросы в очереди
-      processQueue(refreshError, null);
-
-      // ВСЕГДА чистим данные и редиректим на логин при любой ошибке обновления
-      clearAuthData();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.replace("/login");
-      }
-
+      if (isAuthFailure(refreshError)) forceLogout();
       return Promise.reject(refreshError);
-    } finally {
-      isRefreshing = false;
     }
   }
 );
@@ -282,7 +277,7 @@ export const logoutRequest = async () => {
 
 export const refreshTokenRequest = async (refresh_token) => {
   const response = await axios.post(
-    `${import.meta.env.VITE_API_URL}/auth/refresh`,
+    `${BASE_URL}/auth/refresh`,
     { refresh_token },
     { timeout: 10000 }
   );
@@ -334,10 +329,38 @@ export const rejectAccessRequest = async (requestId) => {
 // ИНИЦИАЛИЗАЦИЯ
 // =====================================================
 if (typeof window !== "undefined") {
-  const existingToken = localStorage.getItem("access_token");
-  if (existingToken) {
-    setTimeout(() => { scheduleTokenRefresh(); }, 0);
+  if (localStorage.getItem("access_token")) {
+    setTimeout(() => scheduleTokenRefresh(), 0);
   }
+
+  // После сна ноутбука / фоновой вкладки таймер мог сбиться — проверяем при возврате
+  const onWake = () => {
+    if (document.visibilityState !== "visible") return;
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    const exp = getTokenExp(token);
+    if (exp && exp - Date.now() < REFRESH_BEFORE_MS) {
+      refreshNow();
+    } else {
+      scheduleTokenRefresh();
+    }
+  };
+  document.addEventListener("visibilitychange", onWake);
+  window.addEventListener("focus", onWake);
+
+  // Синхронизация между вкладками
+  window.addEventListener("storage", (e) => {
+    if (e.key !== "access_token") return;
+    if (e.newValue) {
+      scheduleTokenRefresh();
+      window.dispatchEvent(
+        new CustomEvent("auth:refreshed", { detail: { access_token: e.newValue } })
+      );
+    } else {
+      // в другой вкладке вышли из системы
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+    }
+  });
 
   window.addEventListener("auth:logout", () => {
     if (refreshTimer) {
@@ -346,5 +369,8 @@ if (typeof window !== "undefined") {
     }
   });
 }
-
+export const getMe = async () => {
+  const response = await API_URL_AUTH.get("/api/auth/me");
+  return response.data;
+};
 export default API_URL_AUTH;

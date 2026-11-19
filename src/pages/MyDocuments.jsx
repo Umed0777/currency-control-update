@@ -46,20 +46,14 @@ import { useAuthStore } from "../store/useAuth";
 
 const { Title, Text } = Typography;
 
-// const gradientText = {
-//   background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-//   WebkitBackgroundClip: "text",
-//   WebkitTextFillColor: "transparent",
-// };
-
 // ==== Справочники ====
 const ENTITY_TYPES = [
   { value: "all", label: "Все типы" },
-  { value: "contract", label: "Контракты" },
-  { value: "additional_agreement", label: "Доп. соглашения" },
-  { value: "invoice", label: "Инвойсы" },
+  // { value: "contract", label: "Контракты" },
+  // { value: "additional_agreement", label: "Доп. соглашения" },
+  // { value: "invoice", label: "Инвойсы" },
   { value: "gtd", label: "ГТД" },
-  { value: "payment_order", label: "Платежный поручения" },
+  { value: "payment_order", label: "Платежные поручения" }, // Исправлена опечатка
 ];
 
 const ENTITY_TYPE_LABELS = {
@@ -67,7 +61,7 @@ const ENTITY_TYPE_LABELS = {
   additional_agreement: "Доп. соглашение",
   invoice: "Инвойс",
   gtd: "ГТД",
-  payment_order: "Платежный поручения"
+  payment_order: "Платежное поручение" // Исправлена опечатка
 };
 
 const ENTITY_TYPE_COLORS = {
@@ -84,6 +78,8 @@ const STATUS_OPTIONS = [
   { value: "revision_required", label: "На доработке" },
   { value: "approved", label: "Одобрено" },
   { value: "rejected", label: "Отклонено" },
+  // --- ДОБАВЛЕН НОВЫЙ СТАТУС В ФИЛЬТР ---
+  // { value: "rejected_currency_control", label: "Отклонено валютным контролем" },
 ];
 
 const STATUS_MAP = {
@@ -109,6 +105,12 @@ const STATUS_MAP = {
   },
   rejected: {
     label: "Отклонено",
+    color: "red",
+    icon: <CloseCircleOutlined />,
+  },
+  // --- ДОБАВЛЕН НОВЫЙ СТАТУС В СЛОВАРЬ (С ИКОНКОЙ И КРАСНЫМ ЦВЕТОМ) ---
+  rejected_currency_control: {
+    label: "Отклонено валютным контролем",
     color: "red",
     icon: <CloseCircleOutlined />,
   },
@@ -280,17 +282,17 @@ const MyDocuments = () => {
         </Tag>
       ),
     },
-    {
-      title: "Предмет",
-      dataIndex: "subject",
-      key: "subject",
-      width: 220,
-      render: (v) => (
-        <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
-          {v || "—"}
-        </Text>
-      ),
-    },
+    // {
+    //   title: "Предмет",
+    //   dataIndex: "subject",
+    //   key: "subject",
+    //   width: 220,
+    //   render: (v) => (
+    //     <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
+    //       {v || "—"}
+    //     </Text>
+    //   ),
+    // },
     {
       title: "Название компании",
       dataIndex: "counterparty_name",
@@ -386,7 +388,6 @@ const MyDocuments = () => {
       key: "actions",
       width: 340,
       align: "center",
-      //   fixed: "right",
       render: (_, record) => (
         <Tooltip title="Подробнее">
           <Button
@@ -422,8 +423,6 @@ const MyDocuments = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
               background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
@@ -569,7 +568,6 @@ const MyDocuments = () => {
                   minWidth: 0,
                   borderRadius: 10,
                   height: 35,
-                  // background: "linear-gradient(90deg, #ff4b4b, #d946ef)",
                   background: "#8b0000",
                   border: "none",
                   boxShadow: "0 6px 16px rgba(217,70,239,0.28)",
@@ -662,11 +660,6 @@ const MyDocuments = () => {
                 pageSize: pageSize,
                 total: total,
                 showSizeChanger: false,
-                // showTotal: (t) => (
-                //   <span style={{ color: "#ff4d4f", fontWeight: 600 }}>
-                //     Всего: {t}
-                //   </span>
-                // ),
                 onChange: (p) => {
                   setFilter("page", p);
                   fetchMyDocuments({ ...filters, page: p });
