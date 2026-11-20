@@ -601,7 +601,7 @@ const Trash = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" />
+              <Spin size="small" style={{color: '#f00'}} />
             </div>
           ) : (
             <Table
@@ -671,7 +671,7 @@ const Trash = () => {
       >
         {detailLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="middle" />
+            <Spin size="small" style={{color: '#f00'}} />
           </div>
         ) : detailError ? (
           <Empty

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Table,
@@ -10,10 +10,7 @@ import {
   Empty,
   Spin,
   message,
-  Row,
-  Col,
   Tooltip,
-  Badge,
   Popconfirm,
 } from "antd";
 
@@ -21,31 +18,34 @@ import {
   ReloadOutlined,
   UndoOutlined,
   ArrowLeftOutlined,
-  FileTextOutlined,
   BankOutlined,
   CalendarOutlined,
-  DollarOutlined,
   UserOutlined,
   InboxOutlined,
+  ClockCircleOutlined,
+  HistoryOutlined,
+  GlobalOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 
 import { useArchiveStore } from "../store/useArchiveStore";
 import { useAuthStore } from "../store/useAuth";
+import DocumentLink from "../pages/DocumentLink";
 
 const { Title, Text } = Typography;
 
-const redGradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #e60026, #cf1322)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
-
-const redGradientBg = {
-  background: "linear-gradient(135deg, #ff4b4b 0%, #e60026 100%)",
-};
+const RED = "#8b0000";
 
 // Кто может восстанавливать (по Swagger: Валютный контроль, Комплаенс, Администратор)
 const CAN_RESTORE = ["admin", "compliance", "currency_control"];
+
+const STATUS_MAP = {
+  draft: { label: "Черновик", color: "default" },
+  active: { label: "Активный", color: "green" },
+  completed: { label: "Завершён", color: "blue" },
+  cancelled: { label: "Отменён", color: "red" },
+  archived: { label: "В архиве", color: "purple" },
+};
 
 const formatDateTime = (v) => {
   if (!v) return "—";
@@ -75,14 +75,88 @@ const formatMoney = (v, currency) => {
   if (v === null || v === undefined || v === "") return "—";
   const num = Number(v);
   if (Number.isNaN(num)) return String(v);
-  return `${num.toLocaleString("ru-RU")} ${currency || ""}`.trim();
+  const formatted = num.toLocaleString("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  return `${formatted} ${currency || ""}`.trim();
 };
 
-const getPersonName = (person) => {
-  if (!person) return "";
-  const surname = person.first_name || "";
-  const name = person.last_name || "";
-  return [surname, name].filter(Boolean).join(" ").trim();
+const getPersonName = (p) => {
+  if (!p) return "";
+  return [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
+};
+
+const dateCell = (v, color = RED) => (
+  <Space size={6}>
+    <CalendarOutlined style={{ color, fontSize: 12 }} />
+    <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
+  </Space>
+);
+
+const textCell = (v, Icon) => (
+  <Tooltip title={v} placement="topLeft">
+    <Space size={6}>
+      {Icon && <Icon style={{ color: RED, fontSize: 12 }} />}
+      <Text style={{ fontSize: 13 }}>{v || "—"}</Text>
+    </Space>
+  </Tooltip>
+);
+
+const dateTimeCell = (v, Icon) => (
+  <Space size={4}>
+    <Icon style={{ color: RED, fontSize: 11 }} />
+    <Text type="secondary" style={{ fontSize: 12 }}>
+      {formatDateTime(v)}
+    </Text>
+  </Space>
+);
+
+// Человек: ФИО + логин + email
+const personCell = (person, fallbackLogin) => {
+  const name = getPersonName(person);
+  const login = person?.login || fallbackLogin;
+  const email = person?.email;
+
+  if (!name && !login && !email) return <Text type="secondary">—</Text>;
+
+  return (
+    <Space orientation="vertical" size={0}>
+      <Text style={{ fontSize: 13 }}>
+        <UserOutlined style={{ color: RED, fontSize: 11, marginRight: 6 }} />
+        {name && <Text strong>{name}</Text>}
+        {login && (
+          <Text style={{ color: RED, fontFamily: "monospace" }}>
+            {name ? " • " : ""}
+            {login}
+          </Text>
+        )}
+      </Text>
+      {email && (
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          {email}
+        </Text>
+      )}
+    </Space>
+  );
+};
+
+// Суммы доп. соглашений: массив additional_currencies,
+// если его нет — одиночные поля additional_agreement_*
+const getAdditional = (r) => {
+  if (Array.isArray(r.additional_currencies) && r.additional_currencies.length) {
+    return r.additional_currencies;
+  }
+  if (r.additional_agreement_currency || r.additional_agreement_amount) {
+    return [
+      {
+        currency: r.additional_agreement_currency,
+        total_amount: r.additional_agreement_amount,
+        remaining_amount: r.additional_agreement_remaining,
+      },
+    ];
+  }
+  return [];
 };
 
 const ArchivePage = () => {
@@ -122,105 +196,28 @@ const ArchivePage = () => {
 
   const handleRestore = async (record) => {
     try {
-      await restoreContract(branchId, record.company_id, record.id);
+      // В ответе архива нет company_id, есть client_id
+      const companyId = record.company_id ?? record.client_id;
+      await restoreContract(branchId, companyId, record.id);
       message.success("Контракт восстановлен");
     } catch (e) {
       message.error(
         e?.response?.data?.error ||
           e?.response?.data?.message ||
-          "Не удалось восстановить контракт"
+          "Не удалось восстановить контракт",
       );
     }
   };
 
   const columns = [
-    {
-      title: "№ контракта",
-      dataIndex: "contract_number",
-      key: "contract_number",
-      width: 180,
-      render: (v) => (
-        <Text strong style={{ fontFamily: "monospace", fontSize: 13 }}>
-          {v || "—"}
-        </Text>
-      ),
-    },
-    {
-      title: "Клиент",
-      key: "client",
-      width: 240,
-      render: (_, record) => (
-        <Space size={6}>
-          <UserOutlined style={{ color: "#e60026", fontSize: 12 }} />
-          <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: true }}>
-            {record.client_name || record.company_name || "—"}
-          </Text>
-        </Space>
-      ),
-    },
-    {
-      title: "Дата контракта",
-      dataIndex: "contract_date",
-      key: "contract_date",
-      width: 150,
-      render: (v) => (
-        <Space size={6}>
-          <CalendarOutlined style={{ color: "#e60026", fontSize: 12 }} />
-          <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: "Дата окончания",
-      dataIndex: "contract_end_date",
-      key: "contract_end_date",
-      width: 150,
-      render: (v) => (
-        <Space size={6}>
-          <CalendarOutlined style={{ color: "#cf1322", fontSize: 12 }} />
-          <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: "Сумма",
-      key: "amount",
-      width: 160,
-      render: (_, record) => (
-        <Text strong style={{ color: "#e60026", fontSize: 13 }}>
-          {formatMoney(record.amount, record.contract_currency)}
-        </Text>
-      ),
-    },
-    {
-      title: "Архивирован",
-      dataIndex: "archived_at",
-      key: "archived_at",
-      width: 180,
-      render: (v) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {formatDateTime(v)}
-        </Text>
-      ),
-    },
-    {
-      title: "Статус",
-      dataIndex: "approval_status",
-      key: "approval_status",
-      width: 140,
-      render: (v) => (
-        <Tag color="default" style={{ borderRadius: 8 }}>
-          {v || "Архив"}
-        </Tag>
-      ),
-    },
     ...(canRestore
       ? [
           {
             title: "Действие",
             key: "actions",
-            width: 120,
-            align: "right",
+            width: 100,
+            align: "center",
+            // fixed: "left",
             render: (_, record) => (
               <Popconfirm
                 title="Восстановить контракт?"
@@ -241,6 +238,223 @@ const ArchivePage = () => {
           },
         ]
       : []),
+    {
+      title: "№ контракта",
+      dataIndex: "contract_number",
+      key: "contract_number",
+      width: 180,
+      render: (v) => (
+        <Text strong style={{ fontFamily: "monospace", fontSize: 13 }}>
+          {v || "—"}
+        </Text>
+      ),
+    },
+    {
+      title: "Предмет контракта",
+      dataIndex: "subject",
+      key: "subject",
+      width: 220,
+      ellipsis: { showTitle: false },
+      render: (v) => textCell(v),
+    },
+    {
+      title: "Клиент (ID)",
+      key: "client",
+      width: 120,
+      render: (_, r) => (
+        <Tag color="red" style={{ borderRadius: 8 }}>
+          {r.client_name || r.company_name || r.client_id || "—"}
+        </Tag>
+      ),
+    },
+    {
+      title: "Филиал",
+      dataIndex: "branch_id",
+      key: "branch_id",
+      width: 100,
+      render: (v) => <Text>{v ?? "—"}</Text>,
+    },
+    {
+      title: "Сумма контракта",
+      key: "total_amount",
+      width: 170,
+      render: (_, r) => (
+        <Space orientation="vertical" size={0}>
+          <Text strong style={{ color: "#d946ef", fontSize: 13 }}>
+            {formatMoney(r.total_amount, r.contract_currency)}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            остаток: {formatMoney(r.remaining_amount, r.contract_currency)}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Исходная сумма",
+      dataIndex: "original_amount",
+      key: "original_amount",
+      width: 150,
+      render: (v, r) => (
+        <Text style={{ fontSize: 13 }}>
+          {formatMoney(v, r.contract_currency)}
+        </Text>
+      ),
+    },
+    {
+      title: "Доп. соглашения (суммы)",
+      key: "additional",
+      width: 220,
+      render: (_, r) => {
+        const list = getAdditional(r);
+        if (!list.length) return <Text type="secondary">—</Text>;
+        return (
+          <Space orientation="vertical" size={4}>
+            {list.map((a, i) => (
+              <div key={`${a.currency}-${i}`}>
+                <Text strong style={{ color: RED, fontSize: 13 }}>
+                  {formatMoney(a.total_amount, a.currency)}
+                </Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  остаток: {formatMoney(a.remaining_amount, a.currency)}
+                </Text>
+              </div>
+            ))}
+          </Space>
+        );
+      },
+    },
+    {
+      title: "Дата контракта",
+      dataIndex: "contract_date",
+      key: "contract_date",
+      width: 140,
+      render: (v) => dateCell(v),
+    },
+    {
+      title: "Дата поставки",
+      dataIndex: "delivery_date",
+      key: "delivery_date",
+      width: 140,
+      render: (v) => dateCell(v),
+    },
+    {
+      title: "Дата окончания контракта",
+      dataIndex: "contract_end_date",
+      key: "contract_end_date",
+      width: 170,
+      render: (v) => dateCell(v, "#cf1322"),
+    },
+    {
+      title: "Срок возврата (дней)",
+      dataIndex: "return_days",
+      key: "return_days",
+      width: 150,
+      align: "center",
+      render: (v) => (
+        <Tag color="red" style={{ borderRadius: 8 }}>
+          {v !== undefined && v !== null ? v : "—"}
+        </Tag>
+      ),
+    },
+    {
+      title: "Статус",
+      dataIndex: "status",
+      key: "status",
+      width: 120,
+      render: (v) => {
+        const info = STATUS_MAP[v] || { label: v || "—", color: "default" };
+        return (
+          <Tag color={info.color} style={{ borderRadius: 8 }}>
+            {info.label}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "Архивирован",
+      dataIndex: "archived_at",
+      key: "archived_at",
+      width: 170,
+      render: (v) => dateTimeCell(v, InboxOutlined),
+    },
+    {
+      title: "Получатель",
+      dataIndex: "receiver_name",
+      key: "receiver_name",
+      width: 170,
+      ellipsis: { showTitle: false },
+      render: (v) => textCell(v, UserOutlined),
+    },
+    {
+      title: "Банк получателя",
+      dataIndex: "receiver_bank",
+      key: "receiver_bank",
+      width: 170,
+      ellipsis: { showTitle: false },
+      render: (v) => textCell(v, BankOutlined),
+    },
+    {
+      title: "Страна получателя",
+      dataIndex: "receiver_country",
+      key: "receiver_country",
+      width: 170,
+      render: (v) => textCell(v, GlobalOutlined),
+    },
+    {
+      title: "Отправитель",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 180,
+      ellipsis: { showTitle: false },
+      render: (v) => textCell(v, SendOutlined),
+    },
+    {
+      title: "Документ",
+      dataIndex: "document_path",
+      key: "document_path",
+      width: 280,
+      render: (v, r) =>
+        v ? (
+          <DocumentLink entityType="contract" entityId={r.id} filePath={v} />
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: "Создал",
+      key: "creator",
+      width: 260,
+      render: (_, r) => personCell(r.creator, r.created_by),
+    },
+    {
+      title: "Создан",
+      dataIndex: "created_at",
+      key: "created_at",
+      width: 160,
+      render: (v) => dateTimeCell(v, ClockCircleOutlined),
+    },
+    {
+      title: "Обновил",
+      key: "updater",
+      width: 260,
+      render: (_, r) => personCell(r.updater, r.updated_by),
+    },
+    {
+      title: "Обновлён",
+      dataIndex: "updated_at",
+      key: "updated_at",
+      width: 160,
+      render: (v) => dateTimeCell(v, HistoryOutlined),
+    },
+    {
+      title: "Удалён",
+      dataIndex: "deleted_at",
+      key: "deleted_at",
+      width: 160,
+      render: (v) =>
+        v ? dateTimeCell(v, HistoryOutlined) : <Text type="secondary">—</Text>,
+    },
   ];
 
   return (
@@ -267,44 +481,34 @@ const ArchivePage = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // ...redGradientBg,
-              background: '#8b0000',
-              boxShadow: "0 10px 24px rgba(230,0,38,0.28)",
+              background: RED,
+              boxShadow: "0 10px 24px rgba(139,0,0,0.28)",
               flexShrink: 0,
             }}
           >
             <InboxOutlined style={{ fontSize: 18, color: "#fff" }} />
           </div>
-          <div>
-            <Title
-              level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
-            >
-              Архив контрактов
-            </Title>
-            {/* <Text type="secondary" style={{ fontSize: 13 }}>
-              Архивные контракты филиала #{branchId}
-            </Text> */}
-          </div>
+          <Title level={3} style={{ margin: 0, fontWeight: 700, color: RED }}>
+            Архив контрактов
+          </Title>
         </Space>
 
         <Space>
-          <Badge
-            // count={total}
-            showZero
-            overflowCount={9999}
-            style={{ backgroundColor: "#ff4b4b" }}
+          <Button
+            danger
+            icon={<ReloadOutlined />}
+            onClick={() => fetchArchive(branchId, page, pageSize)}
+            loading={loading}
+            style={{
+              borderRadius: 12,
+              height: 35,
+              background: RED,
+              color: "#fff",
+              border: `1px solid ${RED}`,
+            }}
           >
-            <Button
-              danger
-              icon={<ReloadOutlined />}
-              onClick={() => fetchArchive(branchId, page, pageSize)}
-              loading={loading}
-              style={{ borderRadius: 12, height: 35, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
-            >
-              Обновить
-            </Button>
-          </Badge>
+            Обновить
+          </Button>
 
           <Button
             danger
@@ -316,6 +520,7 @@ const ArchivePage = () => {
           </Button>
         </Space>
       </div>
+
       <Card
         style={{
           borderRadius: 18,
@@ -323,7 +528,7 @@ const ArchivePage = () => {
           boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
           overflow: "hidden",
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div
           style={{
@@ -337,8 +542,8 @@ const ArchivePage = () => {
           }}
         >
           <Space size={10}>
-            <BankOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
+            <BankOutlined style={{ color: RED, fontSize: 16 }} />
+            <Text strong style={{ fontSize: 15, color: RED }}>
               Архивные контракты
             </Text>
           </Space>
@@ -365,12 +570,12 @@ const ArchivePage = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" style={{ color: "#e60026" }} />
+              <Spin size="small" />
             </div>
           ) : (
             <Table
               className="red-table"
-              rowKey={(r) => String(r.id ?? r.contract_id ?? Math.random())}
+              rowKey={(r) => String(r.id ?? r.contract_id)}
               loading={loading}
               columns={columns}
               dataSource={items}
@@ -381,7 +586,7 @@ const ArchivePage = () => {
                 total: total,
                 showSizeChanger: false,
                 showTotal: (t) => (
-                  <span style={{ color: "#e60026", fontWeight: 600 }}>
+                  <span style={{ color: RED, fontWeight: 600 }}>
                     Всего: {t}
                   </span>
                 ),

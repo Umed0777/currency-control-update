@@ -871,7 +871,7 @@ const UsersManagePage = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" />
+              <Spin size="small" style={{color: '#f00'}} />
             </div>
           ) : (
             <Table

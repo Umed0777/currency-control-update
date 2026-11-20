@@ -22,7 +22,8 @@ import {
   Divider,
   Tabs,
   DatePicker,
-  // Новые иконки
+  Alert,
+  Pagination,
 } from "antd";
 
 import {
@@ -38,22 +39,27 @@ import {
   DeleteOutlined,
   PlusOutlined,
   FieldTimeOutlined,
-  CalendarOutlined,
-  ClockCircleOutlined,
   CloseOutlined,
-  RiseOutlined,
-   EditOutlined,
+  EditOutlined,
+  CreditCardOutlined,
+  GlobalOutlined,
+  CalendarOutlined,
+  SendOutlined,
+  UserOutlined,
+  BankOutlined,
 } from "@ant-design/icons";
 
-import dayjs from "dayjs";
-import debounce from "lodash/debounce"; // Убедитесь, что lodash установлен: npm i lodash
+import debounce from "lodash/debounce"; // npm i lodash
 import { useApprovalsStore } from "../store/useApprovalsStore";
 import { useAuthStore } from "../store/useAuth";
+import DocumentLink from "../pages/DocumentLink";
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const RED = "#8b0000";
+const GREEN = "#389e0d";
+const ORANGE = "#fa8c16";
 
 // === Типы документов (для отображения) ===
 const ENTITY_TYPE_MAP = {
@@ -89,15 +95,13 @@ const STATUS_MAP = {
   archived: { label: "В архиве", color: "default" },
 };
 
-// === Статусы заявок на продление ГТД ===
-const GTD_EXTENSION_STATUS_MAP = {
-  pending: { label: "В ожидании", color: "gold" },
-  pending_currency_control: {
-    label: "На валютном контроле",
-    color: "orange",
-  },
-  approved: { label: "Одобрено", color: "green" },
-  rejected: { label: "Отклонено", color: "red" },
+// === Статус поставки ГТД (delivery_status) ===
+const DELIVERY_STATUS_MAP = {
+  early: { label: "Раньше срока", color: "green" },
+  on_time: { label: "В срок", color: "blue" },
+  ontime: { label: "В срок", color: "blue" },
+  late: { label: "С опозданием", color: "red" },
+  overdue: { label: "Просрочено", color: "red" },
 };
 
 const DECISION_MAP = {
@@ -107,6 +111,56 @@ const DECISION_MAP = {
   reject: { label: "Отклонено", color: "red" },
   rejected: { label: "Отклонено", color: "red" },
   revision: { label: "На доработке", color: "orange" },
+};
+
+// ============================================================
+// РЕШЕНИЯ: 3 вида (Принято / Отказ / На доработку)
+// Значения для API различаются у комплаенса и валютного контроля.
+// Комментарий обязателен только для «На доработку» и «Отказ».
+// ============================================================
+const API_DECISION = {
+  compliance: {
+    approve: "approve",
+    revision: "revision",
+    reject: "reject",
+  },
+  currency_control: {
+    approve: "accepted",
+    revision: "revision",
+    reject: "rejected",
+  },
+};
+
+const DECISION_ACTIONS = {
+  approve: {
+    label: "Принято",
+    icon: <CheckOutlined />,
+    color: GREEN,
+    needsComment: false,
+  },
+  reject: {
+    label: "Отказ",
+    icon: <CloseOutlined />,
+    color: RED,
+    needsComment: true,
+  },
+  revision: {
+    label: "На доработку",
+    icon: <EditOutlined />,
+    color: ORANGE,
+    needsComment: true,
+  },
+};
+
+const DECISION_STAGE_LABEL = {
+  compliance: "Комплаенс",
+  currency_control: "Валютный контроль",
+};
+
+const DECISION_SUCCESS_TEXT = {
+  approve: "документ принят",
+  reject: "документ отклонён",
+  revision: "документ отправлен на доработку",
 };
 
 // Опции Да/Нет для прав доступа (строки надёжнее, чем boolean в Select)
@@ -135,8 +189,11 @@ const formatDateTime = (v) => {
   });
 };
 
+// Бэкенд отдаёт даты документов как "DD.MM.YYYY" (new Date их не разбирает),
+// поэтому такие строки возвращаем как есть, а ISO форматируем.
 const formatDateShort = (v) => {
   if (!v) return "—";
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(String(v))) return v;
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return v;
   return d.toLocaleDateString("ru-RU", {
@@ -158,11 +215,40 @@ const getPersonName = (p) => {
   return [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
 };
 
+// Чистый текст ошибки (без {"error": ...})
+const cleanErrorText = (value) => {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (s.startsWith("{") || s.startsWith("[")) {
+      try {
+        return cleanErrorText(JSON.parse(s)) || s;
+      } catch {
+        return s;
+      }
+    }
+    return s;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  if (typeof value === "object") {
+    const direct = value.error ?? value.detail ?? value.message;
+    if (direct !== undefined && direct !== null) {
+      return cleanErrorText(direct);
+    }
+    return Object.values(value).map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  return String(value);
+};
+
 const errorText = (e, fallback) =>
-  e?.response?.data?.error ||
-  e?.response?.data?.message ||
-  e?.response?.data?.detail ||
-  e?.message ||
+  cleanErrorText(e?.response?.data) ||
+  (!e?.response && e?.message) ||
   fallback;
 
 // Вспомогательная функция для отображения статуса в модалке
@@ -176,6 +262,42 @@ const renderDecision = (decision) => {
   );
 };
 
+// ---------- Поля ГТД / ПП ----------
+const dash = <Text type="secondary">—</Text>;
+
+// Тег статуса поставки ГТД
+const renderDeliveryStatus = (v) => {
+  if (!v) return dash;
+  const info = DELIVERY_STATUS_MAP[v] || { label: v, color: "default" };
+  return (
+    <Tag color={info.color} style={{ borderRadius: 8, margin: 0 }}>
+      {info.label}
+    </Tag>
+  );
+};
+
+// Разница дней: отрицательное — раньше срока, положительное — позже
+const renderDaysDifference = (v) => {
+  if (v === null || v === undefined || v === "") return dash;
+  const n = Number(v);
+  if (Number.isNaN(n)) return String(v);
+  if (n === 0) return <Text style={{ color: "#1677ff" }}>в срок</Text>;
+  if (n < 0) {
+    return <Text style={{ color: GREEN }}>{Math.abs(n)} дн. раньше</Text>;
+  }
+  return <Text style={{ color: "#cf1322" }}>{n} дн. позже</Text>;
+};
+
+// Текст в таблице с троеточием и подсказкой
+const ellipsisText = (v) =>
+  v ? (
+    <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
+      {v}
+    </Text>
+  ) : (
+    dash
+  );
+
 const ApprovalsPage = () => {
   const navigate = useNavigate();
   const { role, branchId: userBranchId } = useAuthStore();
@@ -187,8 +309,10 @@ const ApprovalsPage = () => {
 
   const canCompliance = isAdmin || isCompliance;
   const canCurrencyControl = isAdmin || isCurrencyControl;
+  const canDecide = canCompliance || canCurrencyControl;
   const canReviewGtd = isAdmin || isCompliance || isCurrencyControl;
-  const canViewPermissions = isAdmin || isCompliance || isCurrencyControl;
+  // Список прав бэкенд отдаёт только Комплаенсу и Администратору (иначе 403)
+  const canViewPermissions = isAdmin || isCompliance;
   const canManagePermissions = isAdmin || isCompliance;
 
   const {
@@ -204,8 +328,6 @@ const ApprovalsPage = () => {
     submitting,
     permissions,
     permissionsLoading,
-    gtdItems,
-    gtdTotal,
     gtdLoading,
     fetchPending,
     fetchDetail,
@@ -219,7 +341,6 @@ const ApprovalsPage = () => {
     setPage,
     clearError,
     clearDetail,
-    // Новые методы из стора
     searchUsers,
     userSearchResults,
     userSearchLoading,
@@ -230,20 +351,22 @@ const ApprovalsPage = () => {
   const [stageFilter, setStageFilter] = useState("");
   const [entityTypeFilter, setEntityTypeFilter] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isDecisionOpen, setIsDecisionOpen] = useState(false);
   const [isGrantOpen, setIsGrantOpen] = useState(false);
-  const [decisionType, setDecisionType] = useState("compliance");
-  
+
+  // Модалка комментария (для «На доработку» и «Отказ»)
+  const [isCommentOpen, setIsCommentOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null); // "reject" | "revision"
+  const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+
   // Стейт для редактирования прав
   const [editingPermission, setEditingPermission] = useState(null);
 
   const [currentRecord, setCurrentRecord] = useState(null);
-  const [decisionSubmitting, setDecisionSubmitting] = useState(false);
 
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [reviewingGtd, setReviewingGtd] = useState(null);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [gtdPage, setGtdPage] = useState(1);
+  const [gtdPage] = useState(1);
   const [gtdPageSize] = useState(20);
 
   const [decisionForm] = Form.useForm();
@@ -256,12 +379,19 @@ const ApprovalsPage = () => {
       debounce((query) => {
         if (query) searchUsers(query);
       }, 500),
-    [searchUsers]
+    [searchUsers],
   );
 
   const visibleItems = (Array.isArray(items) ? items : []).filter((r) =>
     ALLOWED_ENTITY_TYPES.includes(r.entity_type),
   );
+
+  const gtdItems = visibleItems.filter((r) => r.entity_type === "gtd");
+  const poItems = visibleItems.filter((r) => r.entity_type === "payment_order");
+
+  // Какие таблицы показывать (зависит от фильтра «Тип документа»)
+  const showPo = !entityTypeFilter || entityTypeFilter === "payment_order";
+  const showGtd = !entityTypeFilter || entityTypeFilter === "gtd";
 
   const pendingCount = entityTypeFilter ? total : visibleItems.length;
 
@@ -293,7 +423,10 @@ const ApprovalsPage = () => {
 
   useEffect(() => {
     if (error) {
-      message.error(error);
+      message.error({
+        content: cleanErrorText(error) || "Произошла ошибка",
+        key: "approvals-error",
+      });
       clearError();
     }
   }, [error, clearError]);
@@ -322,20 +455,21 @@ const ApprovalsPage = () => {
     clearDetail();
   };
 
-  const handleOpenDecision = (type) => {
-    setDecisionType(type);
-    setIsDecisionOpen(true);
+  // Какая инстанция принимает решение:
+  // комплаенс -> compliance, валютный контроль -> currency_control,
+  // админ -> по текущему этапу документа.
+  const resolveDecisionType = () => {
+    if (isAdmin) {
+      const status = detail?.approval_status || currentRecord?.approval_status;
+      return status === "pending_compliance" ? "compliance" : "currency_control";
+    }
+    if (isCompliance) return "compliance";
+    return "currency_control";
   };
 
-  const handleSubmitDecision = async () => {
+  // Отправка решения (общая для всех трёх видов)
+  const submitDecision = async (action, comment) => {
     if (decisionSubmitting) return;
-
-    let values;
-    try {
-      values = await decisionForm.validateFields();
-    } catch {
-      return;
-    }
 
     const entityType = detail?.entity_type || currentRecord?.entity_type;
     const entityId =
@@ -346,39 +480,78 @@ const ApprovalsPage = () => {
 
     if (!entityType || !entityId) {
       message.error("Не удалось определить документ");
-      return;
+      return false;
     }
 
+    const type = resolveDecisionType();
     const payload = {
-      decision: values.decision,
-      comment: values.comment || "",
+      decision: API_DECISION[type][action],
+      comment: DECISION_ACTIONS[action].needsComment ? comment || "" : "",
     };
 
     setDecisionSubmitting(true);
     try {
-      if (decisionType === "compliance") {
+      if (type === "compliance") {
         await submitCompliance(entityType, entityId, payload);
-        message.success("Решение комплаенса сохранено");
       } else {
         await submitCurrencyControl(entityType, entityId, payload);
-        message.success("Решение валютного контроля сохранено");
       }
-      setIsDecisionOpen(false);
+
+      message.success({
+        content: `${DECISION_STAGE_LABEL[type]}: ${DECISION_SUCCESS_TEXT[action]}`,
+        key: "approvals-decision",
+      });
+
+      setIsCommentOpen(false);
+      setPendingAction(null);
       setIsDetailOpen(false);
       setCurrentRecord(null);
       clearDetail();
       await reloadPending();
+      return true;
     } catch (e) {
-      message.error(errorText(e, "Не удалось сохранить решение"));
+      message.error({
+        content: errorText(e, "Не удалось сохранить решение"),
+        key: "approvals-decision",
+      });
+      return false;
     } finally {
       setDecisionSubmitting(false);
     }
   };
 
+  // Клик по кнопке: «Принято» — сразу, «Отказ» / «На доработку» — с комментарием
+  const handleDecisionClick = (action) => {
+    if (!DECISION_ACTIONS[action].needsComment) {
+      submitDecision(action, "");
+      return;
+    }
+    setPendingAction(action);
+    decisionForm.resetFields();
+    setIsCommentOpen(true);
+  };
+
+  const handleCommentSubmit = async () => {
+    if (!pendingAction || decisionSubmitting) return;
+    let values;
+    try {
+      values = await decisionForm.validateFields();
+    } catch {
+      return;
+    }
+    await submitDecision(pendingAction, values.comment?.trim());
+  };
+
+  const closeCommentModal = () => {
+    if (decisionSubmitting) return;
+    setIsCommentOpen(false);
+    setPendingAction(null);
+  };
+
   // ============================================================
-  // PERMISSIONS (Логика обновлена)
+  // PERMISSIONS
   // ============================================================
-  
+
   // Открытие модалки на создание
   const handleOpenGrant = () => {
     setEditingPermission(null);
@@ -416,11 +589,9 @@ const ApprovalsPage = () => {
 
     try {
       if (editingPermission) {
-        // Редактирование (PUT)
         await updatePermission(editingPermission.login, payload);
         message.success("Права обновлены");
       } else {
-        // Создание (POST)
         await grantPermission(payload);
         message.success("Доступ выдан");
       }
@@ -483,135 +654,274 @@ const ApprovalsPage = () => {
   };
 
   // ============================================================
-  // КОЛОНКИ: PENDING
+  // КОЛОНКИ: как в таблицах ПП и ГТД на странице контракта
   // ============================================================
-  const pendingColumns = [
-    {
-      title: "Документ",
-      key: "document",
-      width: 240,
-      render: (_, record) => (
-        <Space size={10} align="center">
-          <div
+  const dateCell = (v) => (
+    <Space size={4}>
+      <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
+      <Text style={{ fontSize: 13 }}>{formatDateShort(v)}</Text>
+    </Space>
+  );
+
+  const textCell = (v, Icon) =>
+    v ? (
+      <Tooltip title={v} placement="topLeft">
+        <Space size={6}>
+          {Icon && <Icon style={{ color: RED, fontSize: 12 }} />}
+          <Text style={{ fontSize: 13 }}>{v}</Text>
+        </Space>
+      </Tooltip>
+    ) : (
+      dash
+    );
+
+  const amountCell = (v, currency) => (
+    <Text strong style={{ color: "#d946ef", fontSize: 13 }}>
+      {formatMoney(v, currency)}
+    </Text>
+  );
+
+  // Строка решения: «Комплаенс: Принято» / «Вал. контроль: Ожидает»
+  const decisionLine = (label, decision, comment) => {
+    const info = decision
+      ? DECISION_MAP[decision] || { label: decision, color: "default" }
+      : { label: "Ожидает", color: "default" };
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <Text type="secondary" style={{ fontSize: 12, minWidth: 100 }}>
+          {label}:
+        </Text>
+        <Tooltip title={comment || null}>
+          <Tag
+            color={info.color}
             style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: "#fff1f0",
-              border: "1px solid #ffa39e",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#cf1322",
-              fontSize: 14,
-              flexShrink: 0,
+              borderRadius: 8,
+              margin: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              padding: "2px 12px",
             }}
           >
-            <FileTextOutlined />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <Text
-              strong
-              style={{
-                display: "block",
-                fontSize: 13,
-                fontFamily: "monospace",
-              }}
-            >
-              {record.document_number || record.number || "—"}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              ID: {record.entity_id || record.id}
-            </Text>
-          </div>
-        </Space>
-      ),
-    },
-    {
-      title: "Тип",
-      dataIndex: "entity_type",
-      key: "entity_type",
-      width: 180,
-      render: (v) => {
-        const info = ENTITY_TYPE_MAP[v] || {
-          label: v || "—",
-          color: "default",
-        };
-        return (
-          <Tag color={info.color} style={{ borderRadius: 8 }}>
             {info.label}
           </Tag>
-        );
-      },
+        </Tooltip>
+      </div>
+    );
+  };
+
+  // Колонка «Согласование» (статус + решения Комплаенса и Вал. контроля)
+  const approvalColumn = (title) => ({
+    title,
+    key: "approval",
+    width: 260,
+    render: (_, r) => {
+      const info = STATUS_MAP[r.approval_status] || {
+        label: r.approval_status || "—",
+        color: "default",
+      };
+      return (
+        <Space orientation="vertical" size={6}>
+          <Tag
+            color={info.color}
+            style={{ borderRadius: 8, fontWeight: 500, padding: "2px 10px" }}
+          >
+            {info.label}
+          </Tag>
+          {decisionLine(
+            "Комплаенс",
+            r.compliance_decision,
+            r.compliance_comment,
+          )}
+          {decisionLine(
+            "Вал. контроль",
+            r.currency_control_decision,
+            r.currency_control_comment,
+          )}
+        </Space>
+      );
+    },
+  });
+
+  const actionCol = {
+    title: "Действие",
+    key: "actions",
+    width: 90,
+    align: "center",
+    render: (_, record) => (
+      <Tooltip title="Открыть">
+        <Button
+          type="text"
+          icon={<EyeOutlined style={{ color: RED }} />}
+          onClick={() => handleOpenDetail(record)}
+        />
+      </Tooltip>
+    ),
+  };
+
+  // ----- Платёжные поручения -----
+  const poColumns = [
+    actionCol,
+    {
+      title: "Дата валютирования",
+      dataIndex: "value_date",
+      key: "value_date",
+      width: 150,
+      render: (v) => dateCell(v),
     },
     {
-      title: "Клиент",
-      dataIndex: "counterparty_name",
-      key: "counterparty_name",
-      width: 200,
+      title: "Сумма",
+      dataIndex: "amount",
+      key: "amount",
+      width: 130,
+      render: (v, r) => amountCell(v, r.currency),
+    },
+    {
+      title: "Отправитель",
+      dataIndex: "sender_name",
+      key: "sender_name",
+      width: 160,
+      render: (v) => textCell(v, SendOutlined),
+    },
+    {
+      title: "Получатель",
+      dataIndex: "receiver_name",
+      key: "receiver_name",
+      width: 150,
+      render: (v) => textCell(v, UserOutlined),
+    },
+    {
+      title: "Банк получателя",
+      dataIndex: "receiver_bank",
+      key: "receiver_bank",
+      width: 160,
+      render: (v) => textCell(v, BankOutlined),
+    },
+    {
+      title: "Страна получателя",
+      dataIndex: "receiver_country",
+      key: "receiver_country",
+      width: 160,
+      render: (v) => textCell(v, GlobalOutlined),
+    },
+    {
+      title: "Назначение платежа",
+      dataIndex: "payment_purpose",
+      key: "payment_purpose",
+      width: 180,
+      render: (v) => textCell(v),
+    },
+    approvalColumn("Согласование ПП"),
+  ];
+
+  // ----- ГТД -----
+  const gtdColumns = [
+    actionCol,
+    {
+      title: "Номер ГТД",
+      dataIndex: "document_number",
+      key: "document_number",
+      width: 150,
       render: (v) => (
-        <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
+        <Text strong style={{ fontSize: 13 }}>
           {v || "—"}
         </Text>
       ),
     },
     {
-      title: "Сумма",
-      key: "amount",
-      width: 140,
-      render: (_, record) => (
-        <Text strong style={{ fontSize: 13 }}>
-          {formatMoney(record.amount, record.currency)}
-        </Text>
-      ),
-    },
-    {
-      title: "Статус",
-      dataIndex: "approval_status",
-      key: "approval_status",
-      width: 180,
-      render: (v) => {
-        const info = STATUS_MAP[v] || { label: v || "—", color: "default" };
-        return (
-          <Tag color={info.color} style={{ borderRadius: 8 }}>
-            {info.label}
-          </Tag>
-        );
-      },
-    },
-    {
-      title: "Филиал",
-      dataIndex: "branch_name",
-      key: "branch_name",
+      title: "Дата",
+      dataIndex: "document_date",
+      key: "document_date",
       width: 150,
-      render: (v) => <Text style={{ fontSize: 13 }}>{v || "—"}</Text>,
+      render: (v) => dateCell(v),
     },
     {
-      title: "Создан",
-      dataIndex: "created_at",
-      key: "created_at",
-      width: 170,
-      render: (v) => <Text type="secondary">{formatDateTime(v)}</Text>,
+      title: "Сумма",
+      dataIndex: "amount",
+      key: "amount",
+      width: 150,
+      render: (v, r) => amountCell(v, r.currency),
     },
     {
-      title: "Действие",
-      key: "actions",
-      width: 100,
-      align: "right",
-      render: (_, record) => (
-        <Tooltip title="Открыть">
-          <Button
-            type="text"
-            icon={<EyeOutlined style={{ color: RED }} />}
-            onClick={() => handleOpenDetail(record)}
-          />
-        </Tooltip>
-      ),
+      title: "Документ",
+      dataIndex: "document_path",
+      key: "document_path",
+      width: 220,
+      render: (v, r) =>
+        v ? (
+          <DocumentLink entityType="gtd" entityId={r.entity_id} filePath={v} />
+        ) : (
+          dash
+        ),
     },
+    approvalColumn("Согласование ГТД"),
   ];
 
+  // Блок с отдельной таблицей (ПП или ГТД)
+  const renderPendingSection = ({ title, icon, columns, data, emptyText }) => (
+    <Card
+      style={{
+        marginBottom: 20,
+        borderRadius: 18,
+        border: "none",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
+        overflow: "hidden",
+      }}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "16px 20px",
+          background:
+            "linear-gradient(90deg, #fff5f5 0%, #ffffff 60%, #fff5f5 100%)",
+          borderBottom: "1px solid rgba(139,0,0,0.06)",
+        }}
+      >
+        <Space size={10}>
+          {icon}
+          <Text strong style={{ fontSize: 15, color: RED }}>
+            {title}
+          </Text>
+        </Space>
+        <Tag
+          color="red"
+          style={{
+            borderRadius: 8,
+            padding: "2px 12px",
+            fontWeight: 600,
+            fontSize: 13,
+            color: RED,
+          }}
+        >
+          Всего: {data.length}
+        </Tag>
+      </div>
+      <div style={{ padding: 20 }}>
+        <Table
+          className="red-table"
+          rowKey={(r) => `${r.entity_type}-${r.entity_id ?? r.id}`}
+          loading={loading}
+          columns={columns}
+          dataSource={data}
+          scroll={{ x: "max-content" }}
+          pagination={false}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={<span style={{ color: "#999" }}>{emptyText}</span>}
+              />
+            ),
+          }}
+        />
+      </div>
+    </Card>
+  );
+
   // ============================================================
-  // КОЛОНКИ: PERMISSIONS (Обновленные)
+  // КОЛОНКИ: PERMISSIONS
   // ============================================================
   const permissionsColumns = [
     {
@@ -693,206 +1003,16 @@ const ApprovalsPage = () => {
                 <Tooltip title="Редактировать">
                   <Button
                     type="text"
-                    icon={<EditOutlined style={{ color: "#8b0000" }} />}
+                    icon={<EditOutlined style={{ color: RED }} />}
                     onClick={() => handleOpenEdit(record)}
                   />
                 </Tooltip>
                 <Tooltip title="Отозвать">
-                   <Button
+                  <Button
                     danger
                     type="text"
                     icon={<DeleteOutlined />}
                     onClick={() => handleRevokePermission(record.login)}
-                  />
-                </Tooltip>
-              </Space>
-            ),
-          },
-        ]
-      : []),
-  ];
-
-  // ============================================================
-  // КОЛОНКИ: GTD EXTENSIONS
-  // ============================================================
-  const gtdColumns = [
-    {
-      title: "ГТД",
-      key: "gtd",
-      width: 220,
-      render: (_, record) => (
-        <Space size={10} align="center">
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: "#f6ffed",
-              border: "1px solid #b7eb8f",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#389e0d",
-              fontSize: 14,
-              flexShrink: 0,
-            }}
-          >
-            <FieldTimeOutlined />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <Text
-              strong
-              style={{
-                display: "block",
-                fontSize: 13,
-                fontFamily: "monospace",
-              }}
-            >
-              {record.gtd_number || record.gtd?.gtd_number || "—"}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              ID: {record.gtd_id || record.gtd?.id || record.id}
-            </Text>
-          </div>
-        </Space>
-      ),
-    },
-    {
-      title: "Текущий дедлайн",
-      dataIndex: "current_deadline",
-      key: "current_deadline",
-      width: 160,
-      render: (v, record) => (
-        <Space size={4}>
-          <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
-          <Text style={{ fontSize: 13 }}>
-            {formatDateShort(v || record.gtd?.delivery_deadline)}
-          </Text>
-        </Space>
-      ),
-    },
-    {
-      title: "Запрошенный дедлайн",
-      dataIndex: "requested_deadline",
-      key: "requested_deadline",
-      width: 180,
-      render: (v) => (
-        <Space size={4}>
-          <RiseOutlined style={{ color: "#52c41a", fontSize: 12 }} />
-          <Text strong style={{ fontSize: 13 }}>
-            {formatDateShort(v)}
-          </Text>
-        </Space>
-      ),
-    },
-    {
-      title: "Статус",
-      dataIndex: "status",
-      key: "status",
-      width: 180,
-      render: (v) => {
-        const info = GTD_EXTENSION_STATUS_MAP[v] || {
-          label: v || "—",
-          color: "default",
-        };
-        return (
-          <Tag color={info.color} style={{ borderRadius: 8 }}>
-            {info.label}
-          </Tag>
-        );
-      },
-    },
-    {
-      title: "Заявитель",
-      key: "creator",
-      width: 220,
-      render: (_, record) => {
-        const creator = record.creator || {};
-        const fullName = [creator.first_name, creator.last_name]
-          .filter(Boolean)
-          .join(" ");
-        return (
-          <Space orientation="vertical" size={0}>
-            <Text style={{ fontSize: 12, fontWeight: 600 }}>
-              {fullName || "—"}
-            </Text>
-            <Text style={{ fontSize: 11, color: RED }}>
-              {creator.login || record.created_by || ""}
-            </Text>
-          </Space>
-        );
-      },
-    },
-    {
-      title: "Документ-обоснование",
-      dataIndex: "document_path",
-      key: "document_path",
-      width: 220,
-      render: (v) => {
-        if (!v) return <Text type="secondary">—</Text>;
-        const fileName = String(v).split(/[\\/]/).pop();
-        return (
-          <Text style={{ fontSize: 12 }} ellipsis={{ tooltip: v }}>
-            {fileName}
-          </Text>
-        );
-      },
-    },
-    {
-      title: "Дата заявки",
-      dataIndex: "created_at",
-      key: "created_at",
-      width: 170,
-      render: (v) => (
-        <Space size={4}>
-          <ClockCircleOutlined style={{ color: RED, fontSize: 11 }} />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {formatDateTime(v)}
-          </Text>
-        </Space>
-      ),
-    },
-    ...(canReviewGtd
-      ? [
-          {
-            title: "Действие",
-            key: "actions",
-            width: 180,
-            align: "center",
-            render: (_, record) => (
-              <Space size={4}>
-                <Tooltip title="Одобрить">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<CheckOutlined style={{ color: "#389e0d" }} />}
-                    onClick={() => {
-                      setReviewingGtd(record);
-                      setIsReviewOpen(true);
-                      reviewForm.setFieldsValue({
-                        decision: "approve",
-                        approved_deadline: record.requested_deadline
-                          ? dayjs(record.requested_deadline)
-                          : null,
-                        comment: "",
-                      });
-                    }}
-                  />
-                </Tooltip>
-                <Tooltip title="Отклонить">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<CloseOutlined style={{ color: "#cf1322" }} />}
-                    onClick={() => {
-                      setReviewingGtd(record);
-                      setIsReviewOpen(true);
-                      reviewForm.setFieldsValue({
-                        decision: "reject",
-                        approved_deadline: null,
-                        comment: "",
-                      });
-                    }}
                   />
                 </Tooltip>
               </Space>
@@ -997,95 +1117,54 @@ const ApprovalsPage = () => {
             </Row>
           </Card>
 
-          <Card
-            style={{
-              borderRadius: 18,
-              border: "none",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
-              overflow: "hidden",
-            }}
-            styles={{ body: { padding: 0 } }}
-          >
+          {loading && visibleItems.length === 0 ? (
             <div
               style={{
+                minHeight: 300,
                 display: "flex",
+                justifyContent: "center",
                 alignItems: "center",
-                justifyContent: "space-between",
-                padding: "16px 20px",
-                background:
-                  "linear-gradient(90deg, #fff5f5 0%, #ffffff 60%, #fff5f5 100%)",
-                borderBottom: "1px solid rgba(139,0,0,0.06)",
               }}
             >
-              <Space size={10}>
-                <AuditOutlined style={{ color: RED, fontSize: 16 }} />
-                <Text strong style={{ fontSize: 15, color: RED }}>
-                  Ожидают согласования
-                </Text>
-              </Space>
-              <Tag
-                color="red"
-                style={{
-                  borderRadius: 8,
-                  padding: "2px 12px",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  color: RED,
-                }}
-              >
-                Всего: {pendingCount}
-              </Tag>
+              <Spin size="small" />
             </div>
-
-            <div style={{ padding: 20 }}>
-              {loading && visibleItems.length === 0 ? (
-                <div
-                  style={{
-                    minHeight: 300,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <Spin size="middle" />
+          ) : (
+            <>
+              {showPo &&
+                renderPendingSection({
+                  title: "Платёжные поручения",
+                  icon: <CreditCardOutlined style={{ color: RED, fontSize: 16 }} />,
+                  columns: poColumns,
+                  data: poItems,
+                  emptyText: "Нет платёжных поручений на согласовании",
+                })}
+              {showGtd &&
+                renderPendingSection({
+                  title: "ГТД",
+                  icon: <GlobalOutlined style={{ color: RED, fontSize: 16 }} />,
+                  columns: gtdColumns,
+                  data: gtdItems,
+                  emptyText: "Нет ГТД на согласовании",
+                })}
+              {total > pageSize && (
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <Pagination
+                    current={page}
+                    pageSize={pageSize}
+                    total={total}
+                    showSizeChanger={false}
+                    onChange={(p) => setPage(p)}
+                  />
                 </div>
-              ) : (
-                <Table
-                  className="red-table"
-                  rowKey={(r) => `${r.entity_type}-${r.entity_id ?? r.id}`}
-                  loading={loading}
-                  columns={pendingColumns}
-                  dataSource={visibleItems}
-                  scroll={{ x: "max-content" }}
-                  pagination={{
-                    current: page,
-                    pageSize: pageSize,
-                    total: entityTypeFilter ? total : undefined,
-                    showSizeChanger: false,
-                    onChange: (p) => setPage(p),
-                  }}
-                  locale={{
-                    emptyText: (
-                      <Empty
-                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description={
-                          <span style={{ color: "#999" }}>
-                            Нет документов на согласовании
-                          </span>
-                        }
-                      />
-                    ),
-                  }}
-                />
               )}
-            </div>
-          </Card>
+            </>
+          )}
         </>
       ),
     },
   ];
 
-  // Вкладка прав ВК (видят: админ, комплаенс, валютный контроль)
+  // Вкладка прав ВК (видят: админ и комплаенс)
   if (canViewPermissions) {
     tabItems.push({
       key: "permissions",
@@ -1155,7 +1234,7 @@ const ApprovalsPage = () => {
                   alignItems: "center",
                 }}
               >
-                <Spin size="middle" />
+                <Spin size="small" />
               </div>
             ) : (
               <Table
@@ -1188,6 +1267,42 @@ const ApprovalsPage = () => {
       ),
     });
   }
+
+  // Кнопки решения в футере модалки «Детали документа»
+  const decisionButtons =
+    canDecide && !detailLoading && !detailError && detail
+      ? ["approve", "revision", "reject"].map((action) => {
+          const cfg = DECISION_ACTIONS[action];
+          return (
+            <Button
+              key={action}
+              type="primary"
+              icon={cfg.icon}
+              loading={decisionSubmitting && !isCommentOpen}
+              disabled={decisionSubmitting}
+              onClick={() => handleDecisionClick(action)}
+              style={{
+                borderRadius: 10,
+                background: cfg.color,
+                borderColor: cfg.color,
+                fontWeight: 600,
+              }}
+            >
+              {cfg.label}
+            </Button>
+          );
+        })
+      : [];
+
+  const descStyles = {
+    label: {
+      background: "#fafafa",
+      fontWeight: 600,
+      fontSize: 12,
+      width: 180,
+    },
+    content: { fontSize: 13 },
+  };
 
   return (
     <div>
@@ -1280,7 +1395,7 @@ const ApprovalsPage = () => {
         }}
       />
 
-      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА ===== */}
+      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА (кнопки: Принято / На доработку / Отказ) ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1291,67 +1406,46 @@ const ApprovalsPage = () => {
           </Space>
         }
         open={isDetailOpen}
-        onCancel={handleCloseDetail}
+        onCancel={() => {
+          if (!decisionSubmitting) handleCloseDetail();
+        }}
         footer={[
-          canCompliance && (
-            <Button
-              key="compliance"
-              type="primary"
-              danger
-              icon={<CheckOutlined />}
-              onClick={() => handleOpenDecision("compliance")}
-              style={{ borderRadius: 10, background: RED }}
-            >
-              Решение комплаенс
-            </Button>
-          ),
-          canCurrencyControl && (
-            <Button
-              key="cc"
-              type="primary"
-              danger
-              icon={<CheckOutlined />}
-              onClick={() => handleOpenDecision("currency_control")}
-              style={{ borderRadius: 10, background: RED }}
-            >
-              Решение Валютного контроля
-            </Button>
-          ),
-          <Button key="close" danger onClick={handleCloseDetail}>
+          ...decisionButtons,
+          <Button
+            key="close"
+            danger
+            disabled={decisionSubmitting}
+            onClick={handleCloseDetail}
+          >
             Закрыть
           </Button>,
-        ].filter(Boolean)}
-        width={820}
-        style={{ top: 120 }}
+        ]}
+        width={900}
+        style={{ top: 40 }}
         destroyOnHidden
       >
         {detailLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="middle" />
+            <Spin size="small" />
           </div>
         ) : detailError ? (
           <Empty
             description={
-              <span style={{ color: "#cf1322" }}>{detailError}</span>
+              <span style={{ color: "#cf1322" }}>
+                {cleanErrorText(detailError)}
+              </span>
             }
           />
         ) : !detail ? (
           <Empty description="Нет данных" />
         ) : (
-          <>
+          <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
+            {/* ----- Общая информация ----- */}
             <Descriptions
               bordered
               column={2}
               size="small"
-              styles={{
-                label: {
-                  background: "#fafafa",
-                  fontWeight: 600,
-                  fontSize: 12,
-                  width: 180,
-                },
-                content: { fontSize: 13 },
-              }}
+              styles={descStyles}
             >
               <Descriptions.Item label="Тип">
                 <Tag
@@ -1370,7 +1464,7 @@ const ApprovalsPage = () => {
                 {detail.document_number || "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Дата документа">
-                {detail.document_date || "—"}
+                {formatDateShort(detail.document_date)}
               </Descriptions.Item>
               <Descriptions.Item label="Предмет" span={2}>
                 {detail.subject || "—"}
@@ -1396,11 +1490,116 @@ const ApprovalsPage = () => {
               <Descriptions.Item label="Создал" span={2}>
                 {getPersonName(detail.creator) || "—"}
                 {detail.creator?.login ? ` (@${detail.creator.login})` : ""}
+                {detail.creator?.email ? ` • ${detail.creator.email}` : ""}
               </Descriptions.Item>
               <Descriptions.Item label="Создан" span={2}>
                 {formatDateTime(detail.created_at)}
               </Descriptions.Item>
             </Descriptions>
+
+            {/* ----- Контракт и инвойс (и для ГТД, и для ПП) ----- */}
+            {(detail.contract_number || detail.invoice_number) && (
+              <>
+                <Divider style={{ margin: "16px 0" }}>
+                  Контракт и инвойс
+                </Divider>
+                <Descriptions
+                  bordered
+                  column={2}
+                  size="small"
+                  styles={descStyles}
+                >
+                  <Descriptions.Item label="Контракт">
+                    {detail.contract_number || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="ID контракта">
+                    {detail.contract_id ?? "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Инвойс">
+                    {detail.invoice_number || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="ID инвойса">
+                    {detail.invoice_id ?? "—"}
+                  </Descriptions.Item>
+                </Descriptions>
+              </>
+            )}
+
+            {/* ----- ГТД ----- */}
+            {detail.entity_type === "gtd" && (
+              <>
+                <Divider style={{ margin: "16px 0", }}>Данные ГТД</Divider>
+                {detail.delivery_notice && (
+                  <Alert
+                    style={{ marginBottom: 12, border: '1px solid #8b0000', background: '#fff' }}
+                    showIcon
+                    type={
+                      Number(detail.days_difference) > 0 ? "warning" : "info"
+                    }
+                    message={detail.delivery_notice}
+                  />
+                )}
+                <Descriptions
+                  bordered
+                  column={2}
+                  size="small"
+                  styles={descStyles}
+                >
+                  <Descriptions.Item label="Сумма закрытия">
+                    {formatMoney(detail.closes_amount, detail.currency)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Дата подачи ГТД">
+                    {formatDateShort(detail.submission_date)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Крайний срок поставки">
+                    {formatDateShort(detail.delivery_deadline)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Разница дней">
+                    {renderDaysDifference(detail.days_difference)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Статус поставки" span={2}>
+                    {renderDeliveryStatus(detail.delivery_status)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Примечание" span={2}>
+                    {detail.delivery_notice || "—"}
+                  </Descriptions.Item>
+                </Descriptions>
+              </>
+            )}
+
+            {/* ----- Платёжное поручение ----- */}
+            {detail.entity_type === "payment_order" && (
+              <>
+                <Divider style={{ margin: "16px 0" }}>
+                  Данные платёжного поручения
+                </Divider>
+                <Descriptions
+                  bordered
+                  column={2}
+                  size="small"
+                  styles={descStyles}
+                >
+                  <Descriptions.Item label="Дата валютирования" span={2}>
+                    {formatDateShort(detail.value_date)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Отправитель">
+                    {detail.sender_name || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Получатель">
+                    {detail.receiver_name || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Банк получателя">
+                    {detail.receiver_bank || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Страна получателя">
+                    {detail.receiver_country || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Назначение платежа" span={2}>
+                    {detail.payment_purpose || "—"}
+                  </Descriptions.Item>
+                </Descriptions>
+              </>
+            )}
 
             {detail.compliance_decision && (
               <>
@@ -1443,42 +1642,61 @@ const ApprovalsPage = () => {
                 </Descriptions>
               </>
             )}
-          </>
+          </div>
         )}
       </Modal>
 
-      {/* ===== МОДАЛКА: РЕШЕНИЕ ===== */}
+      {/* ===== МОДАЛКА: КОММЕНТАРИЙ (только для «На доработку» и «Отказ») ===== */}
       <Modal
         title={
           <Space size={10}>
-            <ExclamationCircleOutlined style={{ color: RED, fontSize: 18 }} />
+            <ExclamationCircleOutlined
+              style={{
+                color: pendingAction
+                  ? DECISION_ACTIONS[pendingAction].color
+                  : RED,
+                fontSize: 18,
+              }}
+            />
             <span style={{ fontWeight: 700, color: RED }}>
-              {decisionType === "compliance"
-                ? "Решение комплаенс-контроля"
-                : "Решение валютного контроля"}
+              {pendingAction === "revision"
+                ? "Отправить на доработку"
+                : "Отказ"}
             </span>
           </Space>
         }
-        open={isDecisionOpen}
-        onCancel={() => setIsDecisionOpen(false)}
+        open={isCommentOpen}
+        onCancel={closeCommentModal}
         afterClose={() => decisionForm.resetFields()}
+        mask={{ closable: false }}
         footer={[
           <Button
-            style={{ background: RED }}
             key="submit"
             type="primary"
-            danger
-            icon={<CheckOutlined />}
+            icon={pendingAction ? DECISION_ACTIONS[pendingAction].icon : null}
             loading={decisionSubmitting || submitting}
-            onClick={handleSubmitDecision}
+            onClick={handleCommentSubmit}
+            style={{
+              background: pendingAction
+                ? DECISION_ACTIONS[pendingAction].color
+                : RED,
+              borderColor: pendingAction
+                ? DECISION_ACTIONS[pendingAction].color
+                : RED,
+            }}
           >
-            Сохранить
+            {pendingAction === "revision" ? "На доработку" : "Отказать"}
           </Button>,
-          <Button key="cancel" danger onClick={() => setIsDecisionOpen(false)}>
+          <Button
+            key="cancel"
+            danger
+            disabled={decisionSubmitting}
+            onClick={closeCommentModal}
+          >
             Отмена
           </Button>,
         ]}
-        width={600}
+        width={560}
         destroyOnHidden
       >
         <Form
@@ -1488,37 +1706,26 @@ const ApprovalsPage = () => {
           preserve={false}
         >
           <Form.Item
-            label="Решение"
-            name="decision"
-            rules={[{ required: true, message: "Выберите решение" }]}
-          >
-            <Select
-              style={{ border: `1px solid ${RED}` }}
-              placeholder="Выберите решение"
-              options={
-                decisionType === "compliance"
-                  ? [
-                      { value: "approve", label: "Принято" },
-                      { value: "revision", label: "На доработку" },
-                      { value: "reject", label: "Отклонить" },
-                    ]
-                  : [
-                      { value: "accepted", label: "Принято" },
-                      { value: "revision", label: "На доработку" },
-                      { value: "rejected", label: "Отклонено" },
-                    ]
-              }
-            />
-          </Form.Item>
-
-          <Form.Item
             label="Комментарий"
             name="comment"
-            rules={[{ required: true, message: "Комментарий обязателен" }]}
+            rules={[
+              { required: true, message: "Комментарий обязателен" },
+              {
+                validator: (_, value) =>
+                  value && !String(value).trim()
+                    ? Promise.reject(new Error("Комментарий обязателен"))
+                    : Promise.resolve(),
+              },
+            ]}
           >
             <TextArea
               rows={4}
-              placeholder="Укажите причину или комментарий"
+              autoFocus
+              placeholder={
+                pendingAction === "revision"
+                  ? "Что нужно доработать?"
+                  : "Укажите причину отказа"
+              }
               style={{ borderRadius: 10 }}
             />
           </Form.Item>
@@ -1554,7 +1761,14 @@ const ApprovalsPage = () => {
           >
             {editingPermission ? "Сохранить" : "Выдать"}
           </Button>,
-          <Button key="cancel" danger onClick={() => setIsGrantOpen(false)}>
+          <Button
+            key="cancel"
+            danger
+            onClick={() => {
+              setIsGrantOpen(false);
+              setEditingPermission(null);
+            }}
+          >
             Отмена
           </Button>,
         ]}
@@ -1571,7 +1785,7 @@ const ApprovalsPage = () => {
             label="Логин сотрудника"
             name="login"
             rules={[{ required: true, message: "Выберите или введите логин" }]}
-            tooltip="Начните вводить имя или логин для поиска"
+            tooltip="Начните вводить логин для поиска"
           >
             {editingPermission ? (
               // При редактировании логин менять нельзя
@@ -1580,12 +1794,14 @@ const ApprovalsPage = () => {
               // При создании - поиск с автокомплитом
               <Select
                 showSearch
-                placeholder="Поиск по логину или ФИО..."
+                placeholder="Поиск по логину"
                 defaultActiveFirstOption={false}
-                showArrow={false}
-                filterOption={false} // Отключаем локальную фильтрацию, ищем на бэке
+                suffixIcon={null}
+                filterOption={false} // ищем на бэке
                 onSearch={debouncedSearch}
-                notFoundContent={userSearchLoading ? <Spin size="small" /> : null}
+                notFoundContent={
+                  userSearchLoading ? <Spin size="small" /> : null
+                }
                 options={(userSearchResults || []).map((u) => ({
                   value: u.login,
                   label: (

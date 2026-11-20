@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Table,
   Button,
@@ -45,11 +45,13 @@ import { useAdditionalAgreementsStore } from "../store/useAdditionalAgreementsSt
 import { useAuthStore } from "../store/useAuth";
 import { useDocPermissions } from "../store/useDocPermissions";
 import { searchCurrencies } from "../api/dictionary.service";
+// Тот же компонент, что используется для контрактов, инвойсов, ГТД и актов.
+// Он сам открывает файл через API (с токеном), поэтому 404 не возникает.
+import DocumentLink from "../pages/DocumentLink";
 
 const { Title, Text } = Typography;
 
 const RED = "#8b0000";
-
 const MAX_FILE_SIZE_MB = 100;
 
 // ==================== ФОРМАТТЕРЫ ====================
@@ -88,10 +90,6 @@ const formatMoney = (value, currency) => {
   return currency ? `${formatted} ${currency}` : formatted;
 };
 
-const INITIAL_AGREEMENT_VALUES = {
-  currency: undefined,
-};
-
 // ==================== ХЕЛПЕРЫ ====================
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -115,16 +113,45 @@ const filterByLabel = (input, option) =>
     .toLowerCase()
     .includes(String(input || "").toLowerCase());
 
-// Полная ссылка на файл (если бэкенд отдаёт относительный путь)
-const getFileUrl = (path) => {
-  if (!path) return null;
-  const p = String(path);
-  if (/^https?:\/\//i.test(p)) return p;
-  const base = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
-  return `${base}/${p.replace(/^\//, "")}`;
+const getFileName = (path) => String(path || "").split(/[\\/]/).pop();
+
+// Путь к файлу: как и у остальных сущностей, бэкенд отдаёт document_path
+const getRecordDocPath = (record) => {
+  const path =
+    record?.document_path || record?.document_url || record?.document;
+  return typeof path === "string" && path ? path : null;
 };
 
-const getFileName = (path) => String(path || "").split(/[\\/]/).pop();
+// Чистый текст ошибки (без {"error": ...})
+const cleanErrorText = (value) => {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (s.startsWith("{") || s.startsWith("[")) {
+      try {
+        return cleanErrorText(JSON.parse(s)) || s;
+      } catch {
+        return s;
+      }
+    }
+    return s;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  if (typeof value === "object") {
+    const direct = value.error ?? value.detail ?? value.message;
+    if (direct !== undefined && direct !== null) {
+      return cleanErrorText(direct);
+    }
+    return Object.values(value).map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  return String(value);
+};
 
 export const AdditionalAgreements = () => {
   const { id: branchId, companyId, contractId } = useParams();
@@ -146,6 +173,11 @@ export const AdditionalAgreements = () => {
 
   const [activeBranchId, setActiveBranchId] = useState(branchId);
 
+  // синхронизация, если параметр маршрута изменился
+  useEffect(() => {
+    setActiveBranchId(branchId);
+  }, [branchId]);
+
   // ===== STATE =====
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -156,7 +188,7 @@ export const AdditionalAgreements = () => {
   const [currencies, setCurrencies] = useState([]);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
 
-  // ===== ПРАВА (Да -> можно, Нет -> нельзя) =====
+  // ===== ПРАВА =====
   const perms = useDocPermissions();
   const canCreate = perms.create;
   const canEdit = perms.edit;
@@ -164,7 +196,16 @@ export const AdditionalAgreements = () => {
 
   const safeAgreements = Array.isArray(agreements) ? agreements : [];
 
-  const currencyOptions = buildCurrencyOptions(currencies);
+  const currencyOptions = useMemo(() => {
+    const options = buildCurrencyOptions(currencies);
+    // если валюта редактируемой записи отсутствует в справочнике — добавляем,
+    // иначе Select покажет пустое значение
+    const cur = editingAgreement?.currency;
+    if (cur && !options.some((o) => o.value === String(cur))) {
+      options.push({ value: String(cur), label: String(cur) });
+    }
+    return options;
+  }, [currencies, editingAgreement]);
 
   // ===== ЭФФЕКТЫ =====
   useEffect(() => {
@@ -173,17 +214,18 @@ export const AdditionalAgreements = () => {
     }
   }, [activeBranchId, companyId, contractId, fetchAgreements]);
 
-  // Единственное место, где показывается ошибка из store.
-  // key объединяет одинаковые сообщения в одно.
   useEffect(() => {
     if (error) {
-      message.error({ content: error, key: "agreements-error" });
+      message.error({
+        content: cleanErrorText(error) || "Произошла ошибка",
+        key: "agreements-error",
+      });
       clearError?.();
     }
   }, [error, clearError]);
 
   useEffect(() => {
-    const fetchCurrencies = async () => {
+    const loadCurrencies = async () => {
       setLoadingCurrencies(true);
       try {
         const data = await searchCurrencies("");
@@ -194,7 +236,7 @@ export const AdditionalAgreements = () => {
         setLoadingCurrencies(false);
       }
     };
-    fetchCurrencies();
+    loadCurrencies();
   }, []);
 
   // ===== АВТОР =====
@@ -207,8 +249,7 @@ export const AdditionalAgreements = () => {
       creator?.first_name ||
       record?.first_name ||
       (isMe ? user?.first_name : null);
-    const login =
-      creator?.login || record?.login || record?.created_by || null;
+    const login = creator?.login || record?.login || record?.created_by || null;
     const email =
       creator?.email || record?.email || (isMe ? user?.email : null);
 
@@ -229,7 +270,6 @@ export const AdditionalAgreements = () => {
     setEditingAgreement(null);
     form.resetFields();
     form.setFieldsValue({
-      ...INITIAL_AGREEMENT_VALUES,
       branch_id: activeBranchId,
       document: [],
     });
@@ -242,9 +282,10 @@ export const AdditionalAgreements = () => {
       return;
     }
     setEditingAgreement(record);
+    form.resetFields();
     form.setFieldsValue({
-      ...record,
       branch_id: record.branch_id || activeBranchId,
+      agreement_number: record.agreement_number,
       agreement_date: record.agreement_date
         ? dayjs(record.agreement_date)
         : null,
@@ -252,6 +293,7 @@ export const AdditionalAgreements = () => {
         record.amount !== undefined && record.amount !== null
           ? String(record.amount)
           : "",
+      currency: record.currency ? String(record.currency) : undefined,
       document: [],
     });
     setIsModalOpen(true);
@@ -259,13 +301,11 @@ export const AdditionalAgreements = () => {
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setEditingAgreement(null);
   };
 
   const handleSubmit = async () => {
     if (submitting) return;
 
-    // Повторная проверка прав перед отправкой
     if (editingAgreement ? !canEdit : !canCreate) {
       message.warning(
         editingAgreement
@@ -286,23 +326,21 @@ export const AdditionalAgreements = () => {
     try {
       const effectiveBranchId = values.branch_id || activeBranchId;
 
-      // Бэкенд принимает multipart/form-data (formData в Swagger)
+      // Бэкенд (Swagger): multipart/form-data с полями
+      // agreement_number, agreement_date, currency, amount, document
       const payload = new FormData();
-      payload.append(
-        "agreement_number",
-        values.agreement_number?.trim() || "",
-      );
+      payload.append("agreement_number", values.agreement_number?.trim() || "");
       payload.append(
         "agreement_date",
         values.agreement_date?.format("YYYY-MM-DD") || "",
       );
+      payload.append("currency", values.currency || "USD");
       payload.append(
         "amount",
         String(values.amount || "0")
           .replace(/\s/g, "")
           .replace(",", "."),
       );
-      payload.append("currency", values.currency || "USD");
 
       const file = values.document?.[0]?.originFileObj;
       if (file) {
@@ -334,18 +372,15 @@ export const AdditionalAgreements = () => {
         fetchAgreements(effectiveBranchId, companyId, contractId);
       }
       setIsModalOpen(false);
-      form.resetFields();
-      setEditingAgreement(null);
     } catch (err) {
-      // ошибку уже показал useEffect через store.error
+      // ошибку показывает useEffect через store.error
       console.error("Ошибка сохранения:", err);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (e, agreementId) => {
-    e?.stopPropagation?.();
+  const handleDelete = async (agreementId) => {
     if (!canDelete) {
       message.warning("У вас нет прав на удаление");
       return;
@@ -354,12 +389,11 @@ export const AdditionalAgreements = () => {
       await deleteAgreement(activeBranchId, companyId, contractId, agreementId);
       message.success("Доп. соглашение удалено в корзину");
     } catch (err) {
-      // ошибку уже показал useEffect через store.error
       console.error("Ошибка удаления:", err);
     }
   };
 
-  // ===== UPLOAD: проверка файла =====
+  // ===== UPLOAD =====
   const beforeUpload = (file) => {
     const isPdf =
       file.type === "application/pdf" ||
@@ -372,7 +406,7 @@ export const AdditionalAgreements = () => {
       message.error(`Размер файла не должен превышать ${MAX_FILE_SIZE_MB} МБ`);
       return Upload.LIST_IGNORE;
     }
-    return false; // не загружать автоматически, отправим вместе с формой
+    return false; // не загружать автоматически
   };
 
   // ===== КОЛОНКИ =====
@@ -405,8 +439,7 @@ export const AdditionalAgreements = () => {
                     okText="Удалить"
                     cancelText="Отмена"
                     okButtonProps={{ danger: true }}
-                    onConfirm={(e) => handleDelete(e, record.id)}
-                    onCancel={(e) => e?.stopPropagation?.()}
+                    onConfirm={() => handleDelete(record.id)}
                   >
                     <Tooltip title="Удалить">
                       <Button
@@ -474,29 +507,22 @@ export const AdditionalAgreements = () => {
       ),
     },
     {
+      // Документ открывается через DocumentLink — так же, как у контрактов,
+      // инвойсов, ГТД и актов.
       title: "Документ",
       key: "document",
-      width: 180,
+      width: 320,
       render: (_, record) => {
-        const path =
-          record.document_url || record.document_path || record.document;
-        if (!path || typeof path !== "string") {
+        const path = getRecordDocPath(record);
+        if (!path) {
           return <Text type="secondary">—</Text>;
         }
         return (
-          <Tooltip title={getFileName(path)}>
-            <Button
-              type="link"
-              icon={<FileDoneOutlined />}
-              href={getFileUrl(path)}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: RED, padding: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              Открыть PDF
-            </Button>
-          </Tooltip>
+          <DocumentLink
+            entityType="additional_agreement"
+            entityId={record.id}
+            filePath={path}
+          />
         );
       },
     },
@@ -574,6 +600,8 @@ export const AdditionalAgreements = () => {
       ),
     },
   ];
+
+  const currentDocPath = getRecordDocPath(editingAgreement);
 
   return (
     <div>
@@ -711,7 +739,7 @@ export const AdditionalAgreements = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table
@@ -743,7 +771,9 @@ export const AdditionalAgreements = () => {
         </div>
       </Card>
 
-      {/* ===== МОДАЛКА ===== */}
+      {/* ===== МОДАЛКА =====
+          Без destroyOnClose: форма должна оставаться смонтированной,
+          иначе form.setFieldsValue(...) перед открытием не попадает в поля. */}
       <Modal
         title={
           <span style={{ fontWeight: 700, color: RED, fontSize: 17 }}>
@@ -762,7 +792,6 @@ export const AdditionalAgreements = () => {
         }}
         maskClosable={false}
         keyboard={false}
-        destroyOnClose
         forceRender
         width={800}
         style={{ top: 100 }}
@@ -796,17 +825,11 @@ export const AdditionalAgreements = () => {
           </Button>,
         ]}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          autoComplete="off"
-          initialValues={INITIAL_AGREEMENT_VALUES}
-        >
+        <Form form={form} layout="vertical" autoComplete="off">
           <Form.Item name="branch_id" hidden>
             <Input />
           </Form.Item>
 
-          {/* ----- Основная информация ----- */}
           <Divider orientation="left" style={{ marginTop: 0 }}>
             <Space>
               <FileTextOutlined style={{ color: RED }} />
@@ -831,7 +854,7 @@ export const AdditionalAgreements = () => {
             </Col>
             <Col span={12}>
               <Form.Item
-                label="Дата доп. соглашения"
+                label="Дата начала доп. соглашения"
                 name="agreement_date"
                 rules={[{ required: true, message: "Выберите дату" }]}
               >
@@ -844,7 +867,6 @@ export const AdditionalAgreements = () => {
             </Col>
           </Row>
 
-          {/* ----- Финансы ----- */}
           <Divider orientation="left">
             <Space>
               <DollarOutlined style={{ color: RED }} />
@@ -881,6 +903,7 @@ export const AdditionalAgreements = () => {
                 rules={[{ required: true, message: "Выберите валюту" }]}
               >
                 <Select
+                 style={{border: '1px solid #8b0000'}}
                   showSearch
                   placeholder="Выберите валюту"
                   loading={loadingCurrencies}
@@ -898,7 +921,6 @@ export const AdditionalAgreements = () => {
             </Col>
           </Row>
 
-          {/* ----- Документ ----- */}
           <Divider orientation="left">
             <Space>
               <FileDoneOutlined style={{ color: RED }} />
@@ -909,11 +931,11 @@ export const AdditionalAgreements = () => {
           </Divider>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={24}>
               <Form.Item
                 label={
                   editingAgreement
-                    ? "Файл документа доп. соглашения (.pdf) — загрузите новый, если нужно заменить"
+                    ? "Файл документа (.pdf) — загрузите новый, если нужно заменить"
                     : "Файл документа доп. соглашения (.pdf)"
                 }
                 name="document"
@@ -932,15 +954,11 @@ export const AdditionalAgreements = () => {
                       ]
                 }
                 extra={
-                  editingAgreement?.document_path ||
-                  editingAgreement?.document_url ? (
+                  editingAgreement && currentDocPath ? (
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       Текущий файл:{" "}
                       <Text code style={{ fontSize: 11 }}>
-                        {getFileName(
-                          editingAgreement.document_url ||
-                            editingAgreement.document_path,
-                        )}
+                        {getFileName(currentDocPath)}
                       </Text>
                     </Text>
                   ) : null

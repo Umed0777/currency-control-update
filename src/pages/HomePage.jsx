@@ -209,20 +209,20 @@ const HomePage = () => {
   }, [canViewReports, typesLoaded]);
 
   const quickActions = [
-    {
-      key: "companies",
-      title: "Компании филиала",
-      desc: "Список компаний и уведомления по срокам",
-      icon: <BankOutlined />,
-      onClick: () => {
-        if (!branchId) {
-          message.warning("У вас не привязан филиал");
-          return;
-        }
-        navigate(`/branches/${branchId}/dashboard`);
-      },
-      visible: true,
-    },
+    // {
+    //   key: "companies",
+    //   title: "Компании филиала",
+    //   desc: "Список компаний и уведомления по срокам",
+    //   icon: <BankOutlined />,
+    //   onClick: () => {
+    //     if (!branchId) {
+    //       message.warning("У вас не привязан филиал");
+    //       return;
+    //     }
+    //     navigate(`/branches/${branchId}/dashboard`);
+    //   },
+    //   visible: true,
+    // },
     {
       key: "users",
       title: "Пользователи",

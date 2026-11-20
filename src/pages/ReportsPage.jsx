@@ -558,7 +558,7 @@ const ReportsPage = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" style={{ color: "#e60026" }} />
+              <Spin size="small" style={{color: '#f00'}} />
             </div>
           ) : (
             <Table

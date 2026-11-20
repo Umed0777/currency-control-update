@@ -1112,7 +1112,7 @@ const BranchDashboard = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" style={{ color: "#e60026" }} />
+              <Spin size="small" style={{color: '#f00'}} />
             </div>
           ) : (
             <Table
@@ -1262,7 +1262,7 @@ const BranchDashboard = () => {
 
         {loadingNotifications ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="middle" />
+            <Spin size="small" style={{color: '#f00'}}/>
           </div>
         ) : visibleNotifications.length === 0 ? (
           <Empty

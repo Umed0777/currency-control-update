@@ -1063,7 +1063,7 @@ export const GtdUpdate = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" />
+              <Spin size="middle" style={{color: '#f00'}} />
             </div>
           ) : (
             <Table
@@ -1224,7 +1224,7 @@ export const GtdUpdate = () => {
                   options={currencyOptions}
                   notFoundContent={
                     loadingCurrencies ? (
-                      <Spin size="small" />
+                      <Spin size="small" style={{color: '#f00'}} />
                     ) : (
                       "Ничего не найдено"
                     )
@@ -1259,7 +1259,7 @@ export const GtdUpdate = () => {
                   options={countryOptions}
                   notFoundContent={
                     loadingCountries ? (
-                      <Spin size="small" />
+                      <Spin size="small" style={{color: '#f00'}} />
                     ) : (
                       "Ничего не найдено"
                     )
@@ -1341,7 +1341,7 @@ export const GtdUpdate = () => {
                   options={countryOptions}
                   notFoundContent={
                     loadingCountries ? (
-                      <Spin size="small" />
+                      <Spin size="small" style={{color: '#f00'}}/>
                     ) : (
                       "Ничего не найдено"
                     )
@@ -1472,7 +1472,7 @@ export const GtdUpdate = () => {
       >
         {extensionHistoryLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="middle" />
+            <Spin size="small" style={{color: '#f00'}} />
           </div>
         ) : safeHistory.length === 0 ? (
           <Empty
@@ -1553,7 +1553,7 @@ export const GtdUpdate = () => {
       >
         {extensionHistoryLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="middle" />
+            <Spin size="small" style={{color: '#f00'}} />
           </div>
         ) : safeHistory.length === 0 ? (
           <Empty

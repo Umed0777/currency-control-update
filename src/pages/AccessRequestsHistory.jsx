@@ -513,7 +513,7 @@ const AccessRequestsHistory = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" style={{ color: "#e60026" }} />
+              <Spin size="small" style={{ color: "#e60026" }} />
             </div>
           ) : (
             <Table

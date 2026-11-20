@@ -701,7 +701,7 @@ export const AuditLogs = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="middle" style={{ color: "#f00" }} />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table

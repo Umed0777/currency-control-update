@@ -190,6 +190,40 @@ const formatMoney = (value, currency) => {
 const sameId = (a, b) =>
   a === null || a === undefined || String(a) === String(b);
 
+// ---------- Чистый текст ошибки (без {"error": ...}) ----------
+const cleanErrorText = (value) => {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (s.startsWith("{") || s.startsWith("[")) {
+      try {
+        return cleanErrorText(JSON.parse(s)) || s;
+      } catch {
+        return s;
+      }
+    }
+    return s;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  if (typeof value === "object") {
+    const direct = value.error ?? value.detail ?? value.message;
+    if (direct !== undefined && direct !== null) {
+      return cleanErrorText(direct);
+    }
+    return Object.values(value).map(cleanErrorText).filter(Boolean).join("; ");
+  }
+
+  return String(value);
+};
+
+const errMsg = (err, fallback) =>
+  cleanErrorText(err?.response?.data) || fallback;
+
 // ---------- Доп. соглашения: очередь запросов + кэш ----------
 const agreementsCache = new Map(); // contractId -> массив доп. соглашений
 let agreementsQueue = Promise.resolve();
@@ -359,17 +393,6 @@ const INITIAL_FORM_VALUES = {
 
 const Ctx = createContext(null);
 
-const errMsg = (err, fallback) => {
-  const d = err?.response?.data;
-  return (
-    (typeof d?.error === "string" && d.error) ||
-    (typeof d?.detail === "string" && d.detail) ||
-    (typeof d?.message === "string" && d.message) ||
-    (typeof d?.error?.message === "string" && d.error.message) ||
-    fallback
-  );
-};
-
 const filterByLabel = (input, option) =>
   String(option?.label || "")
     .toLowerCase()
@@ -444,45 +467,67 @@ const FormModal = ({
   </div>
 );
 
-const PdfField = ({ editing, currentPath }) => (
-  <Form.Item
-    label={
-      editing
-        ? "Загрузить новый PDF (опционально)"
-        : "Загрузить PDF (опционально)"
-    }
-    name="document"
-    valuePropName="fileList"
-    getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
-    extra={
-      currentPath ? (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          Текущий файл:{" "}
-          <Text code style={{ fontSize: 11 }}>
-            {String(currentPath).split(/[\\/]/).pop()}
+// Поле загрузки PDF.
+// required — файл обязателен. При редактировании файл нужен только если
+// у записи ещё нет документа (если он уже есть, поле можно оставить пустым).
+const PdfField = ({ editing, currentPath, required = false }) => {
+  const mustUpload = required && !(editing && currentPath);
+
+  return (
+    <Form.Item
+      label={
+        editing
+          ? `Загрузить новый PDF${mustUpload ? "" : " (опционально)"}`
+          : `Загрузить PDF${required ? "" : " (опционально)"}`
+      }
+      name="document"
+      valuePropName="fileList"
+      getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+      rules={
+        mustUpload
+          ? [
+              {
+                required: true,
+                type: "array",
+                min: 1,
+                message: "Загрузите PDF документ",
+              },
+            ]
+          : []
+      }
+      extra={
+        currentPath ? (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Текущий файл:{" "}
+            <Text code style={{ fontSize: 11 }}>
+              {String(currentPath).split(/[\\/]/).pop()}
+            </Text>
           </Text>
-        </Text>
-      ) : null
-    }
-  >
-    <Upload.Dragger
-      beforeUpload={() => false}
-      maxCount={1}
-      accept=".pdf"
-      style={{ borderRadius: 12, background: "#fafafa", borderColor: RED }}
+        ) : null
+      }
     >
-      <p className="ant-upload-drag-icon">
-        <InboxOutlined style={{ color: RED, fontSize: 36 }} />
-      </p>
-      <p className="ant-upload-text" style={{ fontSize: 14, fontWeight: 600 }}>
-        Нажмите или перетащите файл
-      </p>
-      <p className="ant-upload-hint" style={{ fontSize: 12, color: "#999" }}>
-        Поддерживается только PDF
-      </p>
-    </Upload.Dragger>
-  </Form.Item>
-);
+      <Upload.Dragger
+        beforeUpload={() => false}
+        maxCount={1}
+        accept=".pdf"
+        style={{ borderRadius: 12, background: "#fafafa", borderColor: RED }}
+      >
+        <p className="ant-upload-drag-icon">
+          <InboxOutlined style={{ color: RED, fontSize: 36 }} />
+        </p>
+        <p
+          className="ant-upload-text"
+          style={{ fontSize: 14, fontWeight: 600 }}
+        >
+          Нажмите или перетащите файл
+        </p>
+        <p className="ant-upload-hint" style={{ fontSize: 12, color: "#999" }}>
+          Поддерживается только PDF
+        </p>
+      </Upload.Dragger>
+    </Form.Item>
+  );
+};
 
 const CurrencySelect = (props) => {
   const { currencyOptions, loadingCurrencies } = useContext(Ctx);
@@ -586,7 +631,10 @@ const useFormSubmit = (form, run, onSaved, onClose) => {
       ok = true;
     } catch (err) {
       console.error("Ошибка сохранения:", err);
-      message.error(errMsg(err, "Не удалось сохранить"));
+      message.error({
+        content: errMsg(err, "Не удалось сохранить"),
+        key: "form-save-error",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -652,6 +700,7 @@ const InvoiceFormModal = ({ contractId, record, onClose, onSaved }) => {
         sender_name: "Актив Банк",
         sender_bank: "Актив Банк",
         sender_country: "Таджикистан",
+        document: [],
       };
 
   return (
@@ -727,7 +776,12 @@ const InvoiceFormModal = ({ contractId, record, onClose, onSaved }) => {
         />
         <Row gutter={16}>
           <Col span={12}>
-            <PdfField editing={editing} currentPath={record?.document_path} />
+            {/* Документ инвойса обязателен */}
+            <PdfField
+              required
+              editing={editing}
+              currentPath={record?.document_path}
+            />
           </Col>
         </Row>
       </Form>
@@ -847,7 +901,12 @@ const GtdFormModal = ({ contractId, invoiceId, record, onClose, onSaved }) => {
         />
         <Row gutter={16}>
           <Col span={12}>
-            <PdfField editing={editing} currentPath={record?.document_path} />
+            {/* Документ ГТД теперь обязателен */}
+            <PdfField
+              required
+              editing={editing}
+              currentPath={record?.document_path}
+            />
           </Col>
         </Row>
       </Form>
@@ -952,7 +1011,12 @@ const ActFormModal = ({ contractId, invoiceId, record, onClose, onSaved }) => {
         />
         <Row gutter={16}>
           <Col span={12}>
-            <PdfField editing={editing} currentPath={record?.document_path} />
+            {/* Документ Акта теперь обязателен */}
+            <PdfField
+              required
+              editing={editing}
+              currentPath={record?.document_path}
+            />
           </Col>
         </Row>
       </Form>
@@ -1760,6 +1824,30 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
         gap: 25,
       }}
     >
+      {/* Блок ПП */}
+      <NestedBlock
+        icon={<CreditCardOutlined style={{ color: RED }} />}
+        title="Платёжные поручения"
+        count={orders.length}
+        extra={
+          perms.create && (
+            <AddButton onClick={() => setPoModal({ record: null })}>
+              Добавить ПП
+            </AddButton>
+          )
+        }
+      >
+        {loadingPo ? (
+          <LoadingText />
+        ) : (
+          <Table
+            {...nestedTableProps}
+            columns={poColumns}
+            dataSource={orders}
+            locale={emptyLocale("Платёжных поручений пока нет")}
+          />
+        )}
+      </NestedBlock>
       {/* Блок ГТД */}
       <NestedBlock
         icon={<GlobalOutlined style={{ color: RED }} />}
@@ -1808,33 +1896,6 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
             columns={actColumns}
             dataSource={acts}
             locale={emptyLocale("Актов пока нет")}
-          />
-        )}
-      </NestedBlock>
-
-      <SectionHr />
-
-      {/* Блок ПП */}
-      <NestedBlock
-        icon={<CreditCardOutlined style={{ color: RED }} />}
-        title="Платёжные поручения"
-        count={orders.length}
-        extra={
-          perms.create && (
-            <AddButton onClick={() => setPoModal({ record: null })}>
-              Добавить ПП
-            </AddButton>
-          )
-        }
-      >
-        {loadingPo ? (
-          <LoadingText />
-        ) : (
-          <Table
-            {...nestedTableProps}
-            columns={poColumns}
-            dataSource={orders}
-            locale={emptyLocale("Платёжных поручений пока нет")}
           />
         )}
       </NestedBlock>
@@ -2229,9 +2290,14 @@ export const ContractsUpdate = () => {
     }
   }, [branchId, companyId, fetchContracts]);
 
+  // Ошибка из store: показываем только текст, без {"error": ...}.
+  // Одинаковый key объединяет дубликаты в одно сообщение.
   useEffect(() => {
     if (error) {
-      message.error(error);
+      message.error({
+        content: cleanErrorText(error) || "Произошла ошибка",
+        key: "contract-save-error",
+      });
       clearError?.();
     }
   }, [error, clearError]);
@@ -2429,18 +2495,17 @@ export const ContractsUpdate = () => {
       setEditingContract(null);
     } catch (err) {
       console.error("Ошибка сохранения:", err);
-      const backendMsg =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        JSON.stringify(err?.response?.data) ||
-        null;
 
-      message.error(
-        backendMsg ||
-          (editingContract
+      // Только текст сообщения, без {"error": ...}
+      message.error({
+        content: errMsg(
+          err,
+          editingContract
             ? "Не удалось обновить контракт"
-            : "Не удалось создать контракт"),
-      );
+            : "Не удалось создать контракт",
+        ),
+        key: "contract-save-error",
+      });
     } finally {
       setSubmitting(false);
     }
