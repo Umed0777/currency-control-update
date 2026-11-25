@@ -47,9 +47,14 @@ import {
   SendOutlined,
   UserOutlined,
   BankOutlined,
+  SafetyCertificateOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  FileProtectOutlined,
+  FileAddOutlined,
 } from "@ant-design/icons";
 
-import debounce from "lodash/debounce"; // npm i lodash
+import debounce from "lodash/debounce";
 import { useApprovalsStore } from "../store/useApprovalsStore";
 import { useAuthStore } from "../store/useAuth";
 import DocumentLink from "../pages/DocumentLink";
@@ -60,8 +65,12 @@ const { TextArea } = Input;
 const RED = "#8b0000";
 const GREEN = "#389e0d";
 const ORANGE = "#fa8c16";
+const PURPLE = "#722ed1"; // Комплаенс
+const BLUE = "#1677ff"; // Валютный контроль
 
-// === Типы документов (для отображения) ===
+// ============================================================
+// ТИПЫ ДОКУМЕНТОВ (теперь включая контракты и доп. соглашения)
+// ============================================================
 const ENTITY_TYPE_MAP = {
   contract: { label: "Контракт", color: "red" },
   invoice: { label: "Инвойс", color: "blue" },
@@ -70,16 +79,26 @@ const ENTITY_TYPE_MAP = {
   payment_order: { label: "Платёжное поручение", color: "cyan" },
 };
 
-// === Только эти типы показываем на странице согласования ===
-const ALLOWED_ENTITY_TYPES = ["gtd", "payment_order"];
-
-// === Варианты фильтра «Тип документа» ===
-const ENTITY_TYPE_FILTER_OPTIONS = [
-  { value: "gtd", label: "ГТД" },
-  { value: "payment_order", label: "Платёжное поручение" },
+// Разрешаем показывать контракты и доп. соглашения
+const ALLOWED_ENTITY_TYPES = [
+  "gtd",
+  "payment_order",
+  "contract",
+  "additional_agreement",
 ];
 
-// === Статусы ===
+// Варианты фильтра «Тип документа»
+const ENTITY_TYPE_FILTER_OPTIONS = [
+  { value: "", label: "Все документы" },
+  ...ALLOWED_ENTITY_TYPES.map((value) => ({
+    value,
+    label: ENTITY_TYPE_MAP[value].label,
+  })),
+];
+
+// ============================================================
+// СТАТУСЫ
+// ============================================================
 const STATUS_MAP = {
   pending: { label: "В ожидании", color: "gold" },
   pending_currency_control: {
@@ -88,6 +107,7 @@ const STATUS_MAP = {
   },
   pending_compliance: { label: "На комплаенсе", color: "purple" },
   revision: { label: "На доработке", color: "volcano" },
+  revision_required: { label: "Требуется доработка", color: "volcano" },
   approved: { label: "Одобрено", color: "green" },
   accepted: { label: "Принято", color: "green" },
   rejected: { label: "Отклонено", color: "red" },
@@ -95,7 +115,6 @@ const STATUS_MAP = {
   archived: { label: "В архиве", color: "default" },
 };
 
-// === Статус поставки ГТД (delivery_status) ===
 const DELIVERY_STATUS_MAP = {
   early: { label: "Раньше срока", color: "green" },
   on_time: { label: "В срок", color: "blue" },
@@ -108,16 +127,38 @@ const DECISION_MAP = {
   approve: { label: "Принято", color: "green" },
   approved: { label: "Принято", color: "green" },
   accepted: { label: "Принято", color: "green" },
-  reject: { label: "Отклонено", color: "red" },
-  rejected: { label: "Отклонено", color: "red" },
+  reject: { label: "Отказано", color: "red" },
+  rejected: { label: "Отказано", color: "red" },
+  declined: { label: "Отказано", color: "red" },
   revision: { label: "На доработке", color: "orange" },
+  revision_required: { label: "Требуется доработка", color: "orange" },
 };
 
-// ============================================================
-// РЕШЕНИЯ: 3 вида (Принято / Отказ / На доработку)
-// Значения для API различаются у комплаенса и валютного контроля.
-// Комментарий обязателен только для «На доработку» и «Отказ».
-// ============================================================
+const humanize = (v) => {
+  if (!v) return "—";
+  const s = String(v).replace(/_/g, " ").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const getStatusInfo = (status) =>
+  STATUS_MAP[status] || { label: humanize(status), color: "default" };
+
+const getDecisionInfo = (decision) =>
+  DECISION_MAP[decision] || { label: humanize(decision), color: "default" };
+
+const STAGE_STATUSES = {
+  compliance: ["pending_compliance"],
+  currency_control: ["pending_currency_control"],
+  revision: ["revision", "revision_required"],
+};
+
+const matchesStage = (record, stage) => {
+  if (!stage) return true;
+  const statuses = STAGE_STATUSES[stage];
+  if (!statuses) return true;
+  return statuses.includes(record.approval_status);
+};
+
 const API_DECISION = {
   compliance: {
     approve: "approve",
@@ -152,6 +193,8 @@ const DECISION_ACTIONS = {
   },
 };
 
+const COMPLIANCE_REVISION_ENABLED = true;
+
 const DECISION_STAGE_LABEL = {
   compliance: "Комплаенс",
   currency_control: "Валютный контроль",
@@ -163,15 +206,11 @@ const DECISION_SUCCESS_TEXT = {
   revision: "документ отправлен на доработку",
 };
 
-// Опции Да/Нет для прав доступа (строки надёжнее, чем boolean в Select)
 const YES_NO_OPTIONS = [
   { value: "yes", label: "Да" },
   { value: "no", label: "Нет" },
 ];
 
-// ============================================================
-// РОЛИ: кто что может делать на странице
-// ============================================================
 const ADMIN_ROLES = ["admin", "administrator", "администратор"];
 const COMPLIANCE_ROLES = ["compliance", "комплаенс"];
 const CURRENCY_CONTROL_ROLES = ["currency_control", "валютный контроль"];
@@ -189,8 +228,6 @@ const formatDateTime = (v) => {
   });
 };
 
-// Бэкенд отдаёт даты документов как "DD.MM.YYYY" (new Date их не разбирает),
-// поэтому такие строки возвращаем как есть, а ISO форматируем.
 const formatDateShort = (v) => {
   if (!v) return "—";
   if (/^\d{2}\.\d{2}\.\d{4}$/.test(String(v))) return v;
@@ -215,10 +252,8 @@ const getPersonName = (p) => {
   return [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
 };
 
-// Чистый текст ошибки (без {"error": ...})
 const cleanErrorText = (value) => {
   if (value === null || value === undefined) return "";
-
   if (typeof value === "string") {
     const s = value.trim();
     if (s.startsWith("{") || s.startsWith("[")) {
@@ -230,11 +265,9 @@ const cleanErrorText = (value) => {
     }
     return s;
   }
-
   if (Array.isArray(value)) {
     return value.map(cleanErrorText).filter(Boolean).join("; ");
   }
-
   if (typeof value === "object") {
     const direct = value.error ?? value.detail ?? value.message;
     if (direct !== undefined && direct !== null) {
@@ -242,7 +275,6 @@ const cleanErrorText = (value) => {
     }
     return Object.values(value).map(cleanErrorText).filter(Boolean).join("; ");
   }
-
   return String(value);
 };
 
@@ -251,10 +283,9 @@ const errorText = (e, fallback) =>
   (!e?.response && e?.message) ||
   fallback;
 
-// Вспомогательная функция для отображения статуса в модалке
 const renderDecision = (decision) => {
   if (!decision) return "—";
-  const info = DECISION_MAP[decision] || { label: decision, color: "default" };
+  const info = getDecisionInfo(decision);
   return (
     <Tag color={info.color} style={{ borderRadius: 6, margin: 0 }}>
       {info.label}
@@ -262,13 +293,11 @@ const renderDecision = (decision) => {
   );
 };
 
-// ---------- Поля ГТД / ПП ----------
 const dash = <Text type="secondary">—</Text>;
 
-// Тег статуса поставки ГТД
 const renderDeliveryStatus = (v) => {
   if (!v) return dash;
-  const info = DELIVERY_STATUS_MAP[v] || { label: v, color: "default" };
+  const info = DELIVERY_STATUS_MAP[v] || { label: humanize(v), color: "default" };
   return (
     <Tag color={info.color} style={{ borderRadius: 8, margin: 0 }}>
       {info.label}
@@ -276,7 +305,6 @@ const renderDeliveryStatus = (v) => {
   );
 };
 
-// Разница дней: отрицательное — раньше срока, положительное — позже
 const renderDaysDifference = (v) => {
   if (v === null || v === undefined || v === "") return dash;
   const n = Number(v);
@@ -288,30 +316,44 @@ const renderDaysDifference = (v) => {
   return <Text style={{ color: "#cf1322" }}>{n} дн. позже</Text>;
 };
 
-// Текст в таблице с троеточием и подсказкой
-const ellipsisText = (v) =>
-  v ? (
-    <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
-      {v}
-    </Text>
-  ) : (
-    dash
-  );
-
 const ApprovalsPage = () => {
   const navigate = useNavigate();
   const { role, branchId: userBranchId } = useAuthStore();
-  const normalizedRole = String(role || "").toLowerCase();
+  const rawRole = (() => {
+    if (role) return role;
+    try {
+      const direct = localStorage.getItem("role");
+      if (direct) return direct;
+      const session = JSON.parse(localStorage.getItem("session") || "null");
+      return session?.role || "";
+    } catch {
+      return "";
+    }
+  })();
+  const normalizedRole = String(rawRole || "").toLowerCase().trim();
 
-  const isAdmin = ADMIN_ROLES.includes(normalizedRole);
-  const isCompliance = COMPLIANCE_ROLES.includes(normalizedRole);
-  const isCurrencyControl = CURRENCY_CONTROL_ROLES.includes(normalizedRole);
+  const roleHas = (list, parts) =>
+    list.includes(normalizedRole) ||
+    parts.some((p) => normalizedRole.includes(p));
+
+  const isCompliance = roleHas(COMPLIANCE_ROLES, [
+    "compl",
+    "комплай",
+    "комплаенс",
+  ]);
+  const isCurrencyControl =
+    !isCompliance &&
+    (roleHas(CURRENCY_CONTROL_ROLES, ["currency", "valut", "валют"]) ||
+      ["vk", "вк"].includes(normalizedRole));
+  const isAdmin =
+    !isCompliance &&
+    !isCurrencyControl &&
+    roleHas(ADMIN_ROLES, ["admin", "админ"]);
 
   const canCompliance = isAdmin || isCompliance;
   const canCurrencyControl = isAdmin || isCurrencyControl;
   const canDecide = canCompliance || canCurrencyControl;
   const canReviewGtd = isAdmin || isCompliance || isCurrencyControl;
-  // Список прав бэкенд отдаёт только Комплаенсу и Администратору (иначе 403)
   const canViewPermissions = isAdmin || isCompliance;
   const canManagePermissions = isAdmin || isCompliance;
 
@@ -330,6 +372,15 @@ const ApprovalsPage = () => {
     permissionsLoading,
     gtdLoading,
     fetchPending,
+    fetchAccepted,
+    acceptedItems: storeAcceptedItems,
+    acceptedLoading,
+    acceptedError,
+    clearAcceptedError,
+    myPermissions,
+    myPermissionsLoading,
+    myPermissionsError,
+    fetchMyPermissions,
     fetchDetail,
     submitCompliance,
     submitCurrencyControl,
@@ -348,19 +399,21 @@ const ApprovalsPage = () => {
   } = useApprovalsStore();
 
   const [activeTab, setActiveTab] = useState("pending");
-  const [stageFilter, setStageFilter] = useState("");
+  const [adminStageFilter, setStageFilter] = useState("");
+  const stageFilter = isCompliance
+    ? "compliance"
+    : isCurrencyControl
+      ? "currency_control"
+      : adminStageFilter;
   const [entityTypeFilter, setEntityTypeFilter] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isGrantOpen, setIsGrantOpen] = useState(false);
 
-  // Модалка комментария (для «На доработку» и «Отказ»)
   const [isCommentOpen, setIsCommentOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null); // "reject" | "revision"
+  const [pendingAction, setPendingAction] = useState(null);
   const [decisionSubmitting, setDecisionSubmitting] = useState(false);
 
-  // Стейт для редактирования прав
   const [editingPermission, setEditingPermission] = useState(null);
-
   const [currentRecord, setCurrentRecord] = useState(null);
 
   const [isReviewOpen, setIsReviewOpen] = useState(false);
@@ -373,7 +426,6 @@ const ApprovalsPage = () => {
   const [grantForm] = Form.useForm();
   const [reviewForm] = Form.useForm();
 
-  // Дебаунс для поиска пользователей
   const debouncedSearch = useMemo(
     () =>
       debounce((query) => {
@@ -382,33 +434,60 @@ const ApprovalsPage = () => {
     [searchUsers],
   );
 
-  const visibleItems = (Array.isArray(items) ? items : []).filter((r) =>
-    ALLOWED_ENTITY_TYPES.includes(r.entity_type),
+  const ACCEPTED_DECISIONS = ["approve", "approved", "accepted"];
+  const isFullyAccepted = (r) =>
+    ["approved", "accepted"].includes(r.approval_status) ||
+    (ACCEPTED_DECISIONS.includes(r.compliance_decision) &&
+      ACCEPTED_DECISIONS.includes(r.currency_control_decision));
+
+  const baseItems = (Array.isArray(items) ? items : []).filter(
+    (r) =>
+      ALLOWED_ENTITY_TYPES.includes(r.entity_type) &&
+      (!entityTypeFilter || r.entity_type === entityTypeFilter),
   );
 
-  const gtdItems = visibleItems.filter((r) => r.entity_type === "gtd");
-  const poItems = visibleItems.filter((r) => r.entity_type === "payment_order");
+  const visibleItems = baseItems.filter(
+    (r) => !isFullyAccepted(r) && matchesStage(r, stageFilter),
+  );
 
-  // Какие таблицы показывать (зависит от фильтра «Тип документа»)
-  const showPo = !entityTypeFilter || entityTypeFilter === "payment_order";
-  const showGtd = !entityTypeFilter || entityTypeFilter === "gtd";
+  const acceptedItems = (() => {
+    if (!isAdmin) return [];
+    const map = new Map();
+    [
+      ...(Array.isArray(storeAcceptedItems) ? storeAcceptedItems : []),
+      ...baseItems.filter(isFullyAccepted),
+    ]
+      .filter(
+        (r) =>
+          ALLOWED_ENTITY_TYPES.includes(r.entity_type) &&
+          (!entityTypeFilter || r.entity_type === entityTypeFilter),
+      )
+      .forEach((r) => map.set(`${r.entity_type}-${r.entity_id ?? r.id}`, r));
+    return [...map.values()];
+  })();
 
-  const pendingCount = entityTypeFilter ? total : visibleItems.length;
+  const itemsByType = (type) =>
+    visibleItems.filter((r) => r.entity_type === type);
 
-  // ============================================================
-  // ЭФФЕКТЫ
-  // ============================================================
+  const pendingCount = visibleItems.length;
+
   useEffect(() => {
     if (activeTab === "pending") {
       fetchPending({ stage: stageFilter, entity_type: entityTypeFilter }).catch(
         () => {},
       );
     }
+    if (activeTab === "pending" && isAdmin) {
+      fetchAccepted({ entity_type: entityTypeFilter });
+    }
     if (activeTab === "permissions" && canViewPermissions) {
       fetchPermissions().catch(() => {});
     }
     if (activeTab === "gtd_extensions" && canReviewGtd) {
       fetchGtdPending(userBranchId, gtdPage, gtdPageSize).catch(() => {});
+    }
+    if (activeTab === "my_permissions" && canReviewGtd) {
+      fetchMyPermissions().catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -431,13 +510,25 @@ const ApprovalsPage = () => {
     }
   }, [error, clearError]);
 
-  // ============================================================
-  // PENDING
-  // ============================================================
-  const reloadPending = () =>
-    fetchPending({ stage: stageFilter, entity_type: entityTypeFilter }).catch(
-      () => {},
-    );
+  useEffect(() => {
+    if (acceptedError) {
+      message.error({
+        content:
+          cleanErrorText(acceptedError) ||
+          "Не удалось загрузить принятые документы",
+        key: "approvals-accepted-error",
+      });
+      clearAcceptedError();
+    }
+  }, [acceptedError, clearAcceptedError]);
+
+  const reloadPending = () => {
+    if (isAdmin) fetchAccepted({ entity_type: entityTypeFilter });
+    return fetchPending({
+      stage: stageFilter,
+      entity_type: entityTypeFilter,
+    }).catch(() => {});
+  };
 
   const handleOpenDetail = async (record) => {
     setCurrentRecord(record);
@@ -455,19 +546,22 @@ const ApprovalsPage = () => {
     clearDetail();
   };
 
-  // Какая инстанция принимает решение:
-  // комплаенс -> compliance, валютный контроль -> currency_control,
-  // админ -> по текущему этапу документа.
+  const currentApprovalStatus =
+    detail?.approval_status || currentRecord?.approval_status;
+
   const resolveDecisionType = () => {
-    if (isAdmin) {
-      const status = detail?.approval_status || currentRecord?.approval_status;
-      return status === "pending_compliance" ? "compliance" : "currency_control";
+    if (currentApprovalStatus === "pending_compliance") return "compliance";
+    if (currentApprovalStatus === "pending_currency_control") {
+      return "currency_control";
     }
     if (isCompliance) return "compliance";
     return "currency_control";
   };
 
-  // Отправка решения (общая для всех трёх видов)
+  const canDecideNow =
+    (canCompliance && currentApprovalStatus === "pending_compliance") ||
+    (canCurrencyControl && currentApprovalStatus === "pending_currency_control");
+
   const submitDecision = async (action, comment) => {
     if (decisionSubmitting) return;
 
@@ -520,7 +614,6 @@ const ApprovalsPage = () => {
     }
   };
 
-  // Клик по кнопке: «Принято» — сразу, «Отказ» / «На доработку» — с комментарием
   const handleDecisionClick = (action) => {
     if (!DECISION_ACTIONS[action].needsComment) {
       submitDecision(action, "");
@@ -548,18 +641,12 @@ const ApprovalsPage = () => {
     setPendingAction(null);
   };
 
-  // ============================================================
-  // PERMISSIONS
-  // ============================================================
-
-  // Открытие модалки на создание
   const handleOpenGrant = () => {
     setEditingPermission(null);
     grantForm.resetFields();
     setIsGrantOpen(true);
   };
 
-  // Открытие модалки на редактирование
   const handleOpenEdit = (record) => {
     setEditingPermission(record);
     grantForm.setFieldsValue({
@@ -571,7 +658,6 @@ const ApprovalsPage = () => {
     setIsGrantOpen(true);
   };
 
-  // Сохранение (Create или Update)
   const handleSavePermission = async () => {
     let values;
     try {
@@ -653,9 +739,6 @@ const ApprovalsPage = () => {
     }
   };
 
-  // ============================================================
-  // КОЛОНКИ: как в таблицах ПП и ГТД на странице контракта
-  // ============================================================
   const dateCell = (v) => (
     <Space size={4}>
       <CalendarOutlined style={{ color: RED, fontSize: 12 }} />
@@ -681,10 +764,9 @@ const ApprovalsPage = () => {
     </Text>
   );
 
-  // Строка решения: «Комплаенс: Принято» / «Вал. контроль: Ожидает»
   const decisionLine = (label, decision, comment) => {
     const info = decision
-      ? DECISION_MAP[decision] || { label: decision, color: "default" }
+      ? getDecisionInfo(decision)
       : { label: "Ожидает", color: "default" };
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -709,16 +791,12 @@ const ApprovalsPage = () => {
     );
   };
 
-  // Колонка «Согласование» (статус + решения Комплаенса и Вал. контроля)
   const approvalColumn = (title) => ({
     title,
     key: "approval",
     width: 260,
     render: (_, r) => {
-      const info = STATUS_MAP[r.approval_status] || {
-        label: r.approval_status || "—",
-        color: "default",
-      };
+      const info = getStatusInfo(r.approval_status);
       return (
         <Space orientation="vertical" size={6}>
           <Tag
@@ -856,9 +934,198 @@ const ApprovalsPage = () => {
     approvalColumn("Согласование ГТД"),
   ];
 
-  // Блок с отдельной таблицей (ПП или ГТД)
-  const renderPendingSection = ({ title, icon, columns, data, emptyText }) => (
+  // ----- Контракты -----
+  const contractColumns = [
+    actionCol,
+    {
+      title: "Номер контракта",
+      dataIndex: "document_number",
+      key: "document_number",
+      width: 180,
+      render: (v) => (
+        <Text strong style={{ fontSize: 13 }}>
+          {v || "—"}
+        </Text>
+      ),
+    },
+    {
+      title: "Дата",
+      dataIndex: "document_date",
+      key: "document_date",
+      width: 150,
+      render: (v) => dateCell(v),
+    },
+    {
+      title: "Предмет",
+      dataIndex: "subject",
+      key: "subject",
+      width: 200,
+      render: (v) => textCell(v, FileTextOutlined),
+    },
+    {
+      title: "Сумма",
+      dataIndex: "amount",
+      key: "amount",
+      width: 150,
+      render: (v, r) => amountCell(v, r.currency),
+    },
+    {
+      title: "Документ",
+      dataIndex: "document_path",
+      key: "document_path",
+      width: 220,
+      render: (v, r) =>
+        v ? (
+          <DocumentLink
+            entityType="contract"
+            entityId={r.entity_id}
+            filePath={v}
+          />
+        ) : (
+          dash
+        ),
+    },
+    approvalColumn("Согласование Контракта"),
+  ];
+
+  // ----- Доп. соглашения -----
+  const agreementColumns = [
+    actionCol,
+    {
+      title: "Номер",
+      dataIndex: "document_number",
+      key: "document_number",
+      width: 180,
+      render: (v) => (
+        <Text strong style={{ fontSize: 13 }}>
+          {v || "—"}
+        </Text>
+      ),
+    },
+    {
+      title: "Дата",
+      dataIndex: "document_date",
+      key: "document_date",
+      width: 150,
+      render: (v) => dateCell(v),
+    },
+    {
+      title: "Предмет",
+      dataIndex: "subject",
+      key: "subject",
+      width: 200,
+      render: (v) => textCell(v, FileTextOutlined),
+    },
+    {
+      title: "Сумма",
+      dataIndex: "amount",
+      key: "amount",
+      width: 150,
+      render: (v, r) => amountCell(v, r.currency),
+    },
+    {
+      title: "Документ",
+      dataIndex: "document_path",
+      key: "document_path",
+      width: 220,
+      render: (v, r) =>
+        v ? (
+          <DocumentLink
+            entityType="additional_agreement"
+            entityId={r.entity_id}
+            filePath={v}
+          />
+        ) : (
+          dash
+        ),
+    },
+    approvalColumn("Согласование Доп. соглашения"),
+  ];
+
+  // ----- Принятые документы (все типы) -----
+  const acceptedColumns = [
+    actionCol,
+    {
+      title: "Номер",
+      dataIndex: "document_number",
+      key: "document_number",
+      width: 140,
+      render: (v) => (
+        <Text strong style={{ fontSize: 13 }}>
+          {v || "—"}
+        </Text>
+      ),
+    },
+    {
+      title: "Тип",
+      dataIndex: "entity_type",
+      key: "entity_type",
+      width: 170,
+      render: (v) => (
+        <Tag color={ENTITY_TYPE_MAP[v]?.color || "default"}>
+          {ENTITY_TYPE_MAP[v]?.label || humanize(v)}
+        </Tag>
+      ),
+    },
+    {
+      title: "Дата",
+      dataIndex: "document_date",
+      key: "document_date",
+      width: 140,
+      render: (v, r) => dateCell(v || r.value_date),
+    },
+    {
+      title: "Сумма",
+      dataIndex: "amount",
+      key: "amount",
+      width: 150,
+      render: (v, r) => amountCell(v, r.currency),
+    },
+    approvalColumn("Согласование"),
+  ];
+
+  // Описание всех секций (порядок = порядок на странице)
+  const SECTIONS = [
+    {
+      type: "contract",
+      title: "Контракты",
+      icon: FileProtectOutlined,
+      columns: contractColumns,
+      emptyText: "Нет контрактов на согласовании",
+    },
+    {
+      type: "additional_agreement",
+      title: "Доп. соглашения",
+      icon: FileAddOutlined,
+      columns: agreementColumns,
+      emptyText: "Нет доп. соглашений на согласовании",
+    },
+    {
+      type: "payment_order",
+      title: "Платёжные поручения",
+      icon: CreditCardOutlined,
+      columns: poColumns,
+      emptyText: "Нет платёжных поручений на согласовании",
+    },
+    {
+      type: "gtd",
+      title: "ГТД",
+      icon: GlobalOutlined,
+      columns: gtdColumns,
+      emptyText: "Нет ГТД на согласовании",
+    },
+  ];
+
+  const renderPendingSection = ({
+    title,
+    icon,
+    columns,
+    data,
+    emptyText,
+    tableLoading = loading,
+  }) => (
     <Card
+      key={title}
       style={{
         marginBottom: 20,
         borderRadius: 18,
@@ -902,7 +1169,7 @@ const ApprovalsPage = () => {
         <Table
           className="red-table"
           rowKey={(r) => `${r.entity_type}-${r.entity_id ?? r.id}`}
-          loading={loading}
+          loading={tableLoading}
           columns={columns}
           dataSource={data}
           scroll={{ x: "max-content" }}
@@ -920,9 +1187,6 @@ const ApprovalsPage = () => {
     </Card>
   );
 
-  // ============================================================
-  // КОЛОНКИ: PERMISSIONS
-  // ============================================================
   const permissionsColumns = [
     {
       title: "Логин",
@@ -1022,9 +1286,6 @@ const ApprovalsPage = () => {
       : []),
   ];
 
-  // ============================================================
-  // ВКЛАДКИ
-  // ============================================================
   const tabItems = [
     {
       key: "pending",
@@ -1075,14 +1336,24 @@ const ApprovalsPage = () => {
                     height: 35,
                     border: `1px solid ${RED}`,
                   }}
-                  allowClear
+                  allowClear={isAdmin}
+                  disabled={!isAdmin}
                   placeholder="Все этапы"
-                  options={[
-                    { value: "", label: "Все этапы" },
-                    { value: "currency_control", label: "Валютный контроль" },
-                    { value: "compliance", label: "Комплаенс" },
-                    { value: "revision", label: "На доработке" },
-                  ]}
+                  options={
+                    isAdmin
+                      ? [
+                          { value: "", label: "Все этапы" },
+                          { value: "currency_control", label: "Валютный контроль" },
+                          { value: "compliance", label: "Комплаенс" },
+                          { value: "revision", label: "На доработке" },
+                        ]
+                      : [
+                          {
+                            value: stageFilter,
+                            label: DECISION_STAGE_LABEL[stageFilter],
+                          },
+                        ]
+                  }
                 />
               </Col>
 
@@ -1099,7 +1370,7 @@ const ApprovalsPage = () => {
                   Тип документа:
                 </Text>
                 <Select
-                  value={entityTypeFilter || undefined}
+                  value={entityTypeFilter}
                   onChange={(v) => {
                     setEntityTypeFilter(v || "");
                     setPage(1);
@@ -1110,7 +1381,7 @@ const ApprovalsPage = () => {
                     border: `1px solid ${RED}`,
                   }}
                   allowClear
-                  placeholder="ГТД и платёжные поручения"
+                  placeholder="Все документы"
                   options={ENTITY_TYPE_FILTER_OPTIONS}
                 />
               </Col>
@@ -1126,25 +1397,33 @@ const ApprovalsPage = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="small" />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <>
-              {showPo &&
+              {SECTIONS.filter(
+                (s) => !entityTypeFilter || entityTypeFilter === s.type,
+              ).map((s) => {
+                const Icon = s.icon;
+                return renderPendingSection({
+                  title: s.title,
+                  icon: <Icon style={{ color: RED, fontSize: 16 }} />,
+                  columns: s.columns,
+                  data: itemsByType(s.type),
+                  emptyText: s.emptyText,
+                });
+              })}
+              {isAdmin &&
                 renderPendingSection({
-                  title: "Платёжные поручения",
-                  icon: <CreditCardOutlined style={{ color: RED, fontSize: 16 }} />,
-                  columns: poColumns,
-                  data: poItems,
-                  emptyText: "Нет платёжных поручений на согласовании",
-                })}
-              {showGtd &&
-                renderPendingSection({
-                  title: "ГТД",
-                  icon: <GlobalOutlined style={{ color: RED, fontSize: 16 }} />,
-                  columns: gtdColumns,
-                  data: gtdItems,
-                  emptyText: "Нет ГТД на согласовании",
+                  title: "Принятые документы",
+                  icon: (
+                    <CheckOutlined style={{ color: GREEN, fontSize: 16 }} />
+                  ),
+                  columns: acceptedColumns,
+                  data: acceptedItems,
+                  tableLoading: acceptedLoading,
+                  emptyText:
+                    "Нет документов, принятых комплаенсом и валютным контролем",
                 })}
               {total > pageSize && (
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -1164,7 +1443,6 @@ const ApprovalsPage = () => {
     },
   ];
 
-  // Вкладка прав ВК (видят: админ и комплаенс)
   if (canViewPermissions) {
     tabItems.push({
       key: "permissions",
@@ -1234,7 +1512,7 @@ const ApprovalsPage = () => {
                   alignItems: "center",
                 }}
               >
-                <Spin size="small" />
+                <Spin size="small" style={{ color: "#f00" }} />
               </div>
             ) : (
               <Table
@@ -1268,30 +1546,182 @@ const ApprovalsPage = () => {
     });
   }
 
-  // Кнопки решения в футере модалки «Детали документа»
+  if (canReviewGtd) {
+    const hasFullAccess = isAdmin || isCompliance;
+    const MY_RIGHTS = [
+      { key: "can_create", label: "Создание документов" },
+      { key: "can_edit", label: "Редактирование документов" },
+      { key: "can_delete", label: "Удаление документов" },
+    ];
+
+    const renderRight = (key) => {
+      const allowed = hasFullAccess || !!myPermissions?.[key];
+      return allowed ? (
+        <Tag
+          color="green"
+          icon={<CheckCircleOutlined />}
+          style={{ borderRadius: 8, margin: 0, fontWeight: 600 }}
+        >
+          Да
+        </Tag>
+      ) : (
+        <Tag
+          icon={<CloseCircleOutlined />}
+          style={{ borderRadius: 8, margin: 0, fontWeight: 600 }}
+        >
+          Нет
+        </Tag>
+      );
+    };
+
+    tabItems.push({
+      key: "my_permissions",
+      label: (
+        <Space size={6}>
+          <SafetyCertificateOutlined style={{ color: RED }} />
+          <span style={{ color: RED, fontWeight: 600 }}>Мои права</span>
+        </Space>
+      ),
+      children: (
+        <Card
+          style={{
+            borderRadius: 18,
+            border: "none",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
+            overflow: "hidden",
+          }}
+          styles={{ body: { padding: 0 } }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "16px 20px",
+              background:
+                "linear-gradient(90deg, #fff5f5 0%, #ffffff 60%, #fff5f5 100%)",
+              borderBottom: "1px solid rgba(139,0,0,0.06)",
+            }}
+          >
+            <Space size={10}>
+              <SafetyCertificateOutlined style={{ color: RED, fontSize: 16 }} />
+              <Text strong style={{ fontSize: 15, color: RED }}>
+                Мои права валютного контроля
+              </Text>
+            </Space>
+          </div>
+
+          <div style={{ padding: 20 }}>
+            {myPermissionsLoading && !myPermissions ? (
+              <div
+                style={{
+                  minHeight: 200,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Spin size="small" style={{ color: "#f00" }} />
+              </div>
+            ) : (
+              <>
+                {myPermissionsError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 10 }}
+                    message={
+                      cleanErrorText(myPermissionsError) ||
+                      "Не удалось загрузить права"
+                    }
+                  />
+                )}
+
+                {hasFullAccess && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 10 }}
+                    message="Администратор и Комплаенс имеют полный доступ независимо от выданных прав"
+                  />
+                )}
+
+                {!hasFullAccess &&
+                  myPermissions &&
+                  !myPermissions.can_create &&
+                  !myPermissions.can_edit &&
+                  !myPermissions.can_delete && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16, borderRadius: 10 }}
+                      message="Вам пока не выдано ни одного права. Обратитесь к Комплаенсу или Администратору."
+                    />
+                  )}
+
+                <Descriptions
+                  bordered
+                  column={1}
+                  size="middle"
+                  styles={{
+                    label: {
+                      background: "#fafafa",
+                      fontWeight: 600,
+                      width: 260,
+                    },
+                  }}
+                >
+                  <Descriptions.Item label="Логин">
+                    <Text strong style={{ fontFamily: "monospace" }}>
+                      {myPermissions?.login ? `@${myPermissions.login}` : "—"}
+                    </Text>
+                  </Descriptions.Item>
+                  {MY_RIGHTS.map((r) => (
+                    <Descriptions.Item key={r.key} label={r.label}>
+                      {renderRight(r.key)}
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+              </>
+            )}
+          </div>
+        </Card>
+      ),
+    });
+  }
+
   const decisionButtons =
-    canDecide && !detailLoading && !detailError && detail
-      ? ["approve", "revision", "reject"].map((action) => {
-          const cfg = DECISION_ACTIONS[action];
-          return (
-            <Button
-              key={action}
-              type="primary"
-              icon={cfg.icon}
-              loading={decisionSubmitting && !isCommentOpen}
-              disabled={decisionSubmitting}
-              onClick={() => handleDecisionClick(action)}
-              style={{
-                borderRadius: 10,
-                background: cfg.color,
-                borderColor: cfg.color,
-                fontWeight: 600,
-              }}
-            >
-              {cfg.label}
-            </Button>
-          );
-        })
+    canDecide && canDecideNow && !detailLoading && !detailError && detail
+      ? ["approve", "revision", "reject"]
+          .filter(
+            (a) =>
+              !(
+                a === "revision" &&
+                resolveDecisionType() === "compliance" &&
+                !COMPLIANCE_REVISION_ENABLED
+              ),
+          )
+          .map((action) => {
+            const cfg = DECISION_ACTIONS[action];
+            return (
+              <Button
+                key={action}
+                type="primary"
+                icon={cfg.icon}
+                loading={decisionSubmitting && !isCommentOpen}
+                disabled={decisionSubmitting}
+                onClick={() => handleDecisionClick(action)}
+                style={{
+                  borderRadius: 10,
+                  background: cfg.color,
+                  borderColor: cfg.color,
+                  fontWeight: 600,
+                }}
+              >
+                {cfg.label}
+              </Button>
+            );
+          })
       : [];
 
   const descStyles = {
@@ -1303,6 +1733,76 @@ const ApprovalsPage = () => {
     },
     content: { fontSize: 13 },
   };
+
+  const renderStageBlock = ({
+    title,
+    icon,
+    color,
+    isCurrent,
+    decision,
+    comment,
+    reviewer,
+    reviewedAt,
+  }) => (
+    <div
+      style={{
+        marginTop: 16,
+        borderRadius: 12,
+        border: `1px solid ${color}`,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 16px",
+          background: `${color}12`,
+          borderBottom: `1px solid ${color}33`,
+        }}
+      >
+        <Space size={8}>
+          <span style={{ color, fontSize: 16, display: "flex" }}>{icon}</span>
+          <Text strong style={{ color, fontSize: 14 }}>
+            {title}
+          </Text>
+        </Space>
+        {isCurrent && (
+          <Tag
+            color={color}
+            style={{ borderRadius: 8, margin: 0, fontWeight: 600 }}
+          >
+            Сейчас на этом этапе
+          </Tag>
+        )}
+      </div>
+      <Descriptions
+        column={1}
+        size="small"
+        bordered
+        styles={descStyles}
+        style={{ borderRadius: 0 }}
+      >
+        <Descriptions.Item label="Решение">
+          {decision ? (
+            renderDecision(decision)
+          ) : (
+            <Tag style={{ borderRadius: 6, margin: 0 }}>Ожидает</Tag>
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="Комментарий">
+          {comment || "—"}
+        </Descriptions.Item>
+        <Descriptions.Item label="Проверил">
+          {getPersonName(reviewer) || "—"}
+        </Descriptions.Item>
+        <Descriptions.Item label="Дата">
+          {reviewedAt ? formatDateTime(reviewedAt) : "—"}
+        </Descriptions.Item>
+      </Descriptions>
+    </div>
+  );
 
   return (
     <div>
@@ -1353,13 +1853,21 @@ const ApprovalsPage = () => {
                 reloadPending();
               } else if (activeTab === "permissions") {
                 fetchPermissions().catch(() => {});
+              } else if (activeTab === "my_permissions") {
+                fetchMyPermissions().catch(() => {});
               } else if (activeTab === "gtd_extensions") {
                 fetchGtdPending(userBranchId, gtdPage, gtdPageSize).catch(
                   () => {},
                 );
               }
             }}
-            loading={loading || permissionsLoading || gtdLoading}
+            loading={
+              loading ||
+              permissionsLoading ||
+              gtdLoading ||
+              acceptedLoading ||
+              myPermissionsLoading
+            }
             style={{
               borderRadius: 12,
               height: 35,
@@ -1395,7 +1903,7 @@ const ApprovalsPage = () => {
         }}
       />
 
-      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА (кнопки: Принято / На доработку / Отказ) ===== */}
+      {/* ===== МОДАЛКА: ДЕТАЛИ ДОКУМЕНТА ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1426,7 +1934,7 @@ const ApprovalsPage = () => {
       >
         {detailLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="small" />
+            <Spin size="small" style={{ color: "#f00" }} />
           </div>
         ) : detailError ? (
           <Empty
@@ -1440,7 +1948,6 @@ const ApprovalsPage = () => {
           <Empty description="Нет данных" />
         ) : (
           <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
-            {/* ----- Общая информация ----- */}
             <Descriptions
               bordered
               column={2}
@@ -1454,7 +1961,7 @@ const ApprovalsPage = () => {
                   }
                 >
                   {ENTITY_TYPE_MAP[detail.entity_type]?.label ||
-                    detail.entity_type}
+                    humanize(detail.entity_type)}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="ID">
@@ -1480,11 +1987,8 @@ const ApprovalsPage = () => {
                 {formatMoney(detail.amount, detail.currency)}
               </Descriptions.Item>
               <Descriptions.Item label="Статус">
-                <Tag
-                  color={STATUS_MAP[detail.approval_status]?.color || "default"}
-                >
-                  {STATUS_MAP[detail.approval_status]?.label ||
-                    detail.approval_status}
+                <Tag color={getStatusInfo(detail.approval_status).color}>
+                  {getStatusInfo(detail.approval_status).label}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Создал" span={2}>
@@ -1497,7 +2001,6 @@ const ApprovalsPage = () => {
               </Descriptions.Item>
             </Descriptions>
 
-            {/* ----- Контракт и инвойс (и для ГТД, и для ПП) ----- */}
             {(detail.contract_number || detail.invoice_number) && (
               <>
                 <Divider style={{ margin: "16px 0" }}>
@@ -1525,13 +2028,16 @@ const ApprovalsPage = () => {
               </>
             )}
 
-            {/* ----- ГТД ----- */}
             {detail.entity_type === "gtd" && (
               <>
-                <Divider style={{ margin: "16px 0", }}>Данные ГТД</Divider>
+                <Divider style={{ margin: "16px 0" }}>Данные ГТД</Divider>
                 {detail.delivery_notice && (
                   <Alert
-                    style={{ marginBottom: 12, border: '1px solid #8b0000', background: '#fff' }}
+                    style={{
+                      marginBottom: 12,
+                      border: "1px solid #8b0000",
+                      background: "#fff",
+                    }}
                     showIcon
                     type={
                       Number(detail.days_difference) > 0 ? "warning" : "info"
@@ -1567,7 +2073,6 @@ const ApprovalsPage = () => {
               </>
             )}
 
-            {/* ----- Платёжное поручение ----- */}
             {detail.entity_type === "payment_order" && (
               <>
                 <Divider style={{ margin: "16px 0" }}>
@@ -1601,52 +2106,34 @@ const ApprovalsPage = () => {
               </>
             )}
 
-            {detail.compliance_decision && (
-              <>
-                <Divider style={{ margin: "16px 0" }}>Комплаенс</Divider>
-                <Descriptions column={1} size="small" bordered>
-                  <Descriptions.Item label="Решение">
-                    {renderDecision(detail.compliance_decision)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Комментарий">
-                    {detail.compliance_comment || "—"}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Проверил">
-                    {getPersonName(detail.compliance_reviewer) || "—"}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Дата">
-                    {formatDateTime(detail.compliance_reviewed_at)}
-                  </Descriptions.Item>
-                </Descriptions>
-              </>
-            )}
+            <Divider style={{ margin: "20px 0 0" }}>Согласование</Divider>
 
-            {detail.currency_control_decision && (
-              <>
-                <Divider style={{ margin: "16px 0" }}>
-                  Валютный контроль
-                </Divider>
-                <Descriptions column={1} size="small" bordered>
-                  <Descriptions.Item label="Решение">
-                    {renderDecision(detail.currency_control_decision)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Комментарий">
-                    {detail.currency_control_comment || "—"}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Проверил">
-                    {getPersonName(detail.currency_control_reviewer) || "—"}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Дата">
-                    {formatDateTime(detail.currency_control_reviewed_at)}
-                  </Descriptions.Item>
-                </Descriptions>
-              </>
-            )}
+            {renderStageBlock({
+              title: "Комплаенс",
+              icon: <SafetyCertificateOutlined />,
+              color: PURPLE,
+              isCurrent: detail.approval_status === "pending_compliance",
+              decision: detail.compliance_decision,
+              comment: detail.compliance_comment,
+              reviewer: detail.compliance_reviewer,
+              reviewedAt: detail.compliance_reviewed_at,
+            })}
+
+            {renderStageBlock({
+              title: "Валютный контроль",
+              icon: <DollarOutlined />,
+              color: BLUE,
+              isCurrent: detail.approval_status === "pending_currency_control",
+              decision: detail.currency_control_decision,
+              comment: detail.currency_control_comment,
+              reviewer: detail.currency_control_reviewer,
+              reviewedAt: detail.currency_control_reviewed_at,
+            })}
           </div>
         )}
       </Modal>
 
-      {/* ===== МОДАЛКА: КОММЕНТАРИЙ (только для «На доработку» и «Отказ») ===== */}
+      {/* ===== МОДАЛКА: КОММЕНТАРИЙ ===== */}
       <Modal
         title={
           <Space size={10}>
@@ -1788,19 +2275,17 @@ const ApprovalsPage = () => {
             tooltip="Начните вводить логин для поиска"
           >
             {editingPermission ? (
-              // При редактировании логин менять нельзя
               <Input disabled style={{ borderRadius: 10 }} />
             ) : (
-              // При создании - поиск с автокомплитом
               <Select
                 showSearch
                 placeholder="Поиск по логину"
                 defaultActiveFirstOption={false}
                 suffixIcon={null}
-                filterOption={false} // ищем на бэке
+                filterOption={false}
                 onSearch={debouncedSearch}
                 notFoundContent={
-                  userSearchLoading ? <Spin size="small" /> : null
+                  userSearchLoading ? <Spin size="small" style={{ color: "#f00" }} /> : null
                 }
                 options={(userSearchResults || []).map((u) => ({
                   value: u.login,

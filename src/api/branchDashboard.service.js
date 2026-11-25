@@ -57,6 +57,13 @@ export const createCompany = async (branchId, { inn }) => {
   );
   return response.data;
 };
+export const addCompanyPhones = async (branchId, companyId, phones) => {
+  const response = await API_URL_AUTH.post(
+    `/api/branches/${branchId}/dashboard/companies/${companyId}/phones`,
+    { phones }
+  );
+  return response.data;
+};
 
 export const updateCompany = async (branchId, companyId, payload) => {
   const response = await API_URL_AUTH.put(

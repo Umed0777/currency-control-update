@@ -347,6 +347,7 @@ const poApprovalColumn = {
   title: "Согласование ПП",
   dataIndex: "approval_status",
   key: "po_approval",
+  width: 200,
   render: (_, r) => approvalCell(r),
 };
 
@@ -1584,7 +1585,7 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
     {
       title: "Действия",
       key: "actions",
-      width: 330,
+      width: 120,
       align: "center",
       render: (_, r) => (
         <RowActions
@@ -1596,7 +1597,7 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
           onDelete={() => deleteGtd(r.id)}
           extra={
             <>
-              {perms.create && (
+              {/* {perms.create && ( */}
                 <Tooltip title="Подать заявку на продление срока ГТД">
                   <Button
                     size="small"
@@ -1619,7 +1620,7 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
                     </span>
                   </Button>
                 </Tooltip>
-              )}
+              {/* )} */}
               <Tooltip title="Показать продления ГТД полностью">
                 <Button
                   size="small"
@@ -1892,6 +1893,7 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
           <LoadingText />
         ) : (
           <Table
+          size="large"
             {...nestedTableProps}
             columns={actColumns}
             dataSource={acts}

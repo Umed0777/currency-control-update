@@ -570,7 +570,7 @@ const ArchivePage = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="small" />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table

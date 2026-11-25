@@ -1,30 +1,26 @@
 import { create } from "zustand";
 import {
   fetchPendingApprovals,
+  fetchAcceptedApprovals,
   fetchApprovalDetail,
   submitComplianceDecision,
   submitCurrencyControlDecision,
   fetchGtdExtensionsPending,
   reviewGtdExtension,
   fetchCurrencyControlPermissions,
+  fetchMyCurrencyControlPermissions,
   grantCurrencyControlPermission,
   revokeCurrencyControlPermission,
-  // Новые импорты
   searchCurrencyControlUsers,
   updateCurrencyControlPermission,
 } from "../api/approvals.service";
 
-// Все типы документов, которые должны показываться при фильтре "Все типы"
-const ALL_ENTITY_TYPES = [
-  "contract",
-  "invoice",
-  "gtd",
-  "additional_agreement",
-  "payment_order",
-];
+// На странице согласования показываем только ГТД и платёжные поручения
+const ALL_ENTITY_TYPES = ["gtd", "payment_order"];
 
-// Сколько записей запрашиваем у бэкенда по каждому типу
-const FETCH_LIMIT_PER_TYPE = 200;
+// Сколько записей запрашиваем у бэкенда по каждому типу.
+// В Swagger: размер страницы по умолчанию 20, максимум 100.
+const FETCH_LIMIT_PER_TYPE = 100;
 
 const toArray = (data) => {
   if (Array.isArray(data)) return data;
@@ -37,6 +33,36 @@ const toArray = (data) => {
 const sliceByPage = (all, page, pageSize) =>
   all.slice((page - 1) * pageSize, page * pageSize);
 
+// Объединяем ответы по типам: убираем дубли, сортируем по дате создания
+const mergeUnique = (results, types) => {
+  const merged = [];
+  let firstError = null;
+
+  results.forEach((r, i) => {
+    if (r.status !== "fulfilled") {
+      if (!firstError) firstError = r.reason;
+      return;
+    }
+    toArray(r.value).forEach((x) =>
+      merged.push({ ...x, entity_type: x.entity_type || types[i] }),
+    );
+  });
+
+  const seen = new Set();
+  const unique = merged.filter((x) => {
+    const key = `${x.entity_type}-${x.entity_id ?? x.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  unique.sort(
+    (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+  );
+
+  return { unique, merged, firstError };
+};
+
 export const useApprovalsStore = create((set, get) => ({
   // === Список на согласовании ===
   allItems: [],
@@ -46,6 +72,11 @@ export const useApprovalsStore = create((set, get) => ({
   pageSize: 20,
   loading: false,
   error: null,
+
+  // === Принятые документы (для админа) ===
+  acceptedItems: [],
+  acceptedLoading: false,
+  acceptedError: null,
 
   // === Детали ===
   detail: null,
@@ -63,13 +94,19 @@ export const useApprovalsStore = create((set, get) => ({
   // === Права ВК ===
   permissions: [],
   permissionsLoading: false,
-  
+
+  // === Мои права (текущего пользователя) ===
+  // { login, can_create, can_edit, can_delete }
+  myPermissions: null,
+  myPermissionsLoading: false,
+  myPermissionsError: null,
+
   // === Поиск пользователей ===
   userSearchResults: [],
   userSearchLoading: false,
 
   // ============================================================
-  // СПИСОК НА СОГЛАСОВАНИИ (все типы документов)
+  // СПИСОК НА СОГЛАСОВАНИИ
   // ============================================================
   fetchPending: async (filters = {}) => {
     set({ loading: true, error: null });
@@ -89,34 +126,11 @@ export const useApprovalsStore = create((set, get) => ({
         ),
       );
 
-      const merged = [];
-      let firstError = null;
-
-      results.forEach((r, i) => {
-        if (r.status !== "fulfilled") {
-          if (!firstError) firstError = r.reason;
-          return;
-        }
-        toArray(r.value).forEach((x) =>
-          merged.push({ ...x, entity_type: x.entity_type || types[i] }),
-        );
-      });
+      const { unique, merged, firstError } = mergeUnique(results, types);
 
       if (merged.length === 0 && firstError) {
         throw firstError;
       }
-
-      const seen = new Set();
-      const unique = merged.filter((x) => {
-        const key = `${x.entity_type}-${x.entity_id ?? x.id}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      unique.sort(
-        (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
-      );
 
       const { page, pageSize } = get();
       const maxPage = Math.max(1, Math.ceil(unique.length / pageSize));
@@ -139,6 +153,58 @@ export const useApprovalsStore = create((set, get) => ({
           "Не удалось загрузить список согласований",
       });
       throw err;
+    }
+  },
+
+  // ============================================================
+  // ПРИНЯТЫЕ ДОКУМЕНТЫ (комплаенс + валютный контроль приняли)
+  // GET /api/approvals/accepted — только для администратора.
+  // Если упали оба запроса (ГТД и ПП) — пишем ошибку в acceptedError,
+  // чтобы она не терялась молча.
+  // ============================================================
+  fetchAccepted: async (filters = {}) => {
+    set({ acceptedLoading: true, acceptedError: null });
+    try {
+      const { entity_type, ...rest } = filters;
+      const types = entity_type ? [entity_type] : ALL_ENTITY_TYPES;
+
+      const results = await Promise.allSettled(
+        types.map((type) =>
+          fetchAcceptedApprovals({
+            page: 1,
+            page_size: FETCH_LIMIT_PER_TYPE,
+            ...rest,
+            entity_type: type,
+          }),
+        ),
+      );
+
+      const { unique, merged, firstError } = mergeUnique(results, types);
+
+      if (merged.length === 0 && firstError) {
+        set({
+          acceptedItems: [],
+          acceptedLoading: false,
+          acceptedError:
+            firstError?.response?.data?.error ||
+            firstError?.message ||
+            "Не удалось загрузить принятые документы",
+        });
+        return [];
+      }
+
+      set({ acceptedItems: unique, acceptedLoading: false });
+      return unique;
+    } catch (err) {
+      set({
+        acceptedItems: [],
+        acceptedLoading: false,
+        acceptedError:
+          err?.response?.data?.error ||
+          err?.message ||
+          "Не удалось загрузить принятые документы",
+      });
+      return [];
     }
   },
 
@@ -259,11 +325,35 @@ export const useApprovalsStore = create((set, get) => ({
     }
   },
 
+  // Мои права: { login, can_create, can_edit, can_delete }
+  // Ошибку в интерфейс не выводим: при сбое просто считаем, что прав нет.
+  // GET /api/compliance/permissions/currency-control/me
+  // При ошибке сохраняем текст в myPermissionsError (показывается во вкладке «Мои права»).
+  fetchMyPermissions: async () => {
+    set({ myPermissionsLoading: true, myPermissionsError: null });
+    try {
+      const data = await fetchMyCurrencyControlPermissions();
+      set({ myPermissions: data || null, myPermissionsLoading: false });
+      return data;
+    } catch (err) {
+      set({
+        myPermissions: null,
+        myPermissionsLoading: false,
+        myPermissionsError:
+          err?.response?.data?.error ||
+          err?.message ||
+          "Не удалось загрузить мои права",
+      });
+      throw err;
+    }
+  },
+
   grantPermission: async (payload) => {
     set({ submitting: true });
     try {
       const result = await grantCurrencyControlPermission(payload);
       await get().fetchPermissions();
+      get().fetchMyPermissions().catch(() => {});
       set({ submitting: false });
       return result;
     } catch (err) {
@@ -282,6 +372,7 @@ export const useApprovalsStore = create((set, get) => ({
         ),
         submitting: false,
       }));
+      get().fetchMyPermissions().catch(() => {});
       return result;
     } catch (err) {
       set({ submitting: false });
@@ -289,7 +380,6 @@ export const useApprovalsStore = create((set, get) => ({
     }
   },
 
-  // НОВОЕ: Поиск пользователей
   searchUsers: async (query) => {
     if (!query) {
       set({ userSearchResults: [] });
@@ -301,18 +391,17 @@ export const useApprovalsStore = create((set, get) => ({
       const list = toArray(data);
       set({ userSearchResults: list, userSearchLoading: false });
       return list;
-    } catch (err) {
+    } catch {
       set({ userSearchLoading: false });
-      // Тихо игнорируем ошибку поиска, чтобы не спамить пользователя
     }
   },
 
-  // НОВОЕ: Обновление прав
   updatePermission: async (login, payload) => {
     set({ submitting: true });
     try {
       const result = await updateCurrencyControlPermission(login, payload);
       await get().fetchPermissions();
+      get().fetchMyPermissions().catch(() => {});
       set({ submitting: false });
       return result;
     } catch (err) {
@@ -333,17 +422,22 @@ export const useApprovalsStore = create((set, get) => ({
     set({ pageSize: size, items: sliceByPage(allItems, page, size) });
   },
   clearError: () => set({ error: null }),
+  clearAcceptedError: () => set({ acceptedError: null }),
   clearDetail: () => set({ detail: null, detailError: null }),
   clear: () =>
     set({
       allItems: [],
       items: [],
+      acceptedItems: [],
+      acceptedError: null,
       total: 0,
       page: 1,
       detail: null,
       gtdItems: [],
       gtdTotal: 0,
       permissions: [],
+      myPermissions: null,
+      myPermissionsError: null,
       userSearchResults: [],
       error: null,
     }),

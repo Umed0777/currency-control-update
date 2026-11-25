@@ -911,7 +911,7 @@ export const AdditionalAgreements = () => {
                   options={currencyOptions}
                   notFoundContent={
                     loadingCurrencies ? (
-                      <Spin size="small" />
+                      <Spin size="small" style={{ color: "#f00" }} />
                     ) : (
                       "Ничего не найдено"
                     )

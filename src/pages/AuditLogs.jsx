@@ -306,24 +306,24 @@ export const AuditLogs = () => {
         );
       },
     },
-    {
-      title: "Сущность",
-      dataIndex: "entity",
-      key: "entity",
-      width: 200,
-      render: (v, record) => (
-        <Space direction="vertical" size={0}>
-          <Tag color="purple" style={{ borderRadius: 8 }}>
-            {AUDIT_ENTITY_MAP[v] || v || "—"}
-          </Tag>
-          {record.entity_id !== undefined && record.entity_id !== null && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              ID: {record.entity_id}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
+    // {
+    //   title: "Сущность",
+    //   dataIndex: "entity",
+    //   key: "entity",
+    //   width: 200,
+    //   render: (v, record) => (
+    //     <Space direction="vertical" size={0}>
+    //       <Tag color="purple" style={{ borderRadius: 8 }}>
+    //         {AUDIT_ENTITY_MAP[v] || v || "—"}
+    //       </Tag>
+    //       {record.entity_id !== undefined && record.entity_id !== null && (
+    //         <Text type="secondary" style={{ fontSize: 11 }}>
+    //           ID: {record.entity_id}
+    //         </Text>
+    //       )}
+    //     </Space>
+    //   ),
+    // },
     {
       title: "Пользователь",
       dataIndex: "user_login",
@@ -498,7 +498,7 @@ export const AuditLogs = () => {
         bodyStyle={{ padding: 20 }}
       >
         <Row gutter={[16, 16]}>
-          <Col xs={24} md={12} lg={6}>
+          <Col xs={24} md={12} lg={8}>
             <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Логин пользователя
             </Text>
@@ -517,7 +517,7 @@ export const AuditLogs = () => {
             />
           </Col>
 
-          <Col xs={24} md={12} lg={6}>
+          <Col xs={24} md={12} lg={8}>
             <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Действие
             </Text>
@@ -556,7 +556,7 @@ export const AuditLogs = () => {
             />
           </Col>
 
-          <Col xs={24} md={12} lg={6}>
+          {/* <Col xs={24} md={12} lg={6}>
             <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Сущность
             </Text>
@@ -580,9 +580,9 @@ export const AuditLogs = () => {
                 })
               )}
             />
-          </Col>
+          </Col> */}
 
-          <Col xs={24} md={12} lg={6}>
+          <Col xs={24} md={12} lg={8}>
             <Text strong style={{ fontSize: 13, color: "#8b0000" }}>
               Филиал (ID)
             </Text>

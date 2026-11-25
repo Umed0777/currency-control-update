@@ -24,6 +24,38 @@ const toArray = (data) => {
 
 const getId = (c) => c?.id ?? c?.company_id;
 
+// Телефоны могут прийти массивом или строкой ("a; b" / "a, b")
+const toPhoneArray = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v ?? "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const sep = value.includes(";") ? ";" : ",";
+    return value
+      .split(sep)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+// Объединяем списки номеров без дублей (сравниваем по цифрам,
+// чтобы "992 987 383 839" и "992987383839" считались одним номером)
+const mergePhones = (...lists) => {
+  const seen = new Set();
+  const result = [];
+  lists.forEach((list) => {
+    toPhoneArray(list).forEach((p) => {
+      const key = p.replace(/\D/g, "") || p;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(p);
+      }
+    });
+  });
+  return result;
+};
+
 const DEFAULT_FILTERS = { query: "", search_type: "name" };
 
 export const useBranchDashboardStore = create(
@@ -73,6 +105,10 @@ export const useBranchDashboardStore = create(
                 ...item,
               };
 
+              // Номера из базы (в том числе добавленные вручную) —
+              // берём ТОЛЬКО из ответа сервера, а не из старого кэша
+              const dbPhones = toPhoneArray(item.phones);
+
               // Если есть ИНН — пробуем получить дополнительную
               // информацию из CBS
               if (item.inn) {
@@ -82,6 +118,12 @@ export const useBranchDashboardStore = create(
                   console.log(`Клиент CBS по ИНН ${item.inn}:`, clientData);
 
                   if (clientData && typeof clientData === "object") {
+                    const cbsPhones = toPhoneArray(
+                      clientData.phones ||
+                        clientData.phone_numbers ||
+                        clientData.phoneNumbers
+                    );
+
                     merged = {
                       ...merged,
                       ...clientData,
@@ -93,12 +135,9 @@ export const useBranchDashboardStore = create(
                         merged.name ||
                         "",
 
-                      phones:
-                        clientData.phones ||
-                        clientData.phone_numbers ||
-                        clientData.phoneNumbers ||
-                        merged.phones ||
-                        [],
+                      // ИСПРАВЛЕНО: объединяем номера из CBS и из базы,
+                      // а не затираем базу номерами из CBS
+                      phones: mergePhones(cbsPhones, dbPhones),
 
                       llc:
                         merged.llc ||
@@ -107,13 +146,18 @@ export const useBranchDashboardStore = create(
                         clientData.companyName ||
                         "",
                     };
+                  } else {
+                    merged = { ...merged, phones: mergePhones(dbPhones) };
                   }
                 } catch (error) {
                   console.warn(
                     `Ошибка получения клиента по ИНН ${item.inn}:`,
                     error
                   );
+                  merged = { ...merged, phones: mergePhones(dbPhones) };
                 }
+              } else {
+                merged = { ...merged, phones: mergePhones(dbPhones) };
               }
 
               if (id) {

@@ -43,13 +43,7 @@ import { useAuthStore } from "../store/useAuth";
 
 const { Title, Text } = Typography;
 
-const gradientText = {
-  background: "linear-gradient(90deg, #ff4b4b, #d946ef, #8b5cf6)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-};
-
-const CAN_VIEW_TRASH = [ "admin", "compliance", "currency_control"];
+const CAN_VIEW_TRASH = ["admin", "compliance", "currency_control"];
 
 const ENTITY_TYPES = [
   { value: "", label: "Все типы" },
@@ -57,6 +51,7 @@ const ENTITY_TYPES = [
   { value: "additional_agreement", label: "Доп. соглашения" },
   { value: "invoice", label: "Инвойсы" },
   { value: "gtd", label: "ГТД" },
+  { value: "payment_order", label: "Платёжные поручения" },
 ];
 
 const ENTITY_TYPE_LABELS = {
@@ -64,6 +59,7 @@ const ENTITY_TYPE_LABELS = {
   additional_agreement: "Доп. соглашение",
   invoice: "Инвойс",
   gtd: "ГТД",
+  payment_order: "Платёжное поручение",
 };
 
 const ENTITY_TYPE_COLORS = {
@@ -71,6 +67,7 @@ const ENTITY_TYPE_COLORS = {
   additional_agreement: "purple",
   invoice: "blue",
   gtd: "green",
+  payment_order: "cyan",
 };
 
 const formatDateTime = (value) => {
@@ -86,8 +83,10 @@ const formatDateTime = (value) => {
   });
 };
 
+// Даты вида "DD.MM.YYYY" возвращаем как есть, ISO форматируем
 const formatDate = (value) => {
   if (!value) return "—";
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(String(value))) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("ru-RU", {
@@ -110,6 +109,12 @@ const getPersonName = (person) => {
   const name = person.last_name || "";
   return [surname, name].filter(Boolean).join(" ").trim();
 };
+
+const isPaymentOrder = (record) => record?.entity_type === "payment_order";
+
+// Номер документа: у ПП он может лежать в document_number
+const getDocNumber = (record) =>
+  record?.number || record?.document_number || record?.contract_number || "";
 
 const Trash = () => {
   const navigate = useNavigate();
@@ -193,7 +198,7 @@ const Trash = () => {
       message.error(
         e?.response?.data?.error ||
           e?.response?.data?.message ||
-          "Не удалось восстановить"
+          "Не удалось восстановить",
       );
     } finally {
       setRestoring(null);
@@ -204,7 +209,7 @@ const Trash = () => {
     try {
       const entityType = record.entity_type;
       const id = record.id;
-      const name = record.number || record.contract_number || "";
+      const name = getDocNumber(record);
       const isPdf = String(record.document_path || "")
         .toLowerCase()
         .endsWith(".pdf");
@@ -225,7 +230,7 @@ const Trash = () => {
       title: "Тип",
       dataIndex: "entity_type",
       key: "entity_type",
-      width: 160,
+      width: 190,
       render: (v) => (
         <Tag
           color={ENTITY_TYPE_COLORS[v] || "default"}
@@ -240,7 +245,7 @@ const Trash = () => {
       dataIndex: "number",
       key: "number",
       width: 220,
-      render: (v, record) => (
+      render: (_, record) => (
         <Space size={10} align="center">
           <div
             style={{
@@ -269,7 +274,7 @@ const Trash = () => {
                 whiteSpace: "nowrap",
               }}
             >
-              {v || record.contract_number || "—"}
+              {getDocNumber(record) || "—"}
             </Text>
             <Text type="secondary" style={{ fontSize: 11 }}>
               ID: {record.id}
@@ -279,15 +284,32 @@ const Trash = () => {
       ),
     },
     {
-      title: "Клиент",
+      title: "Клиент / Стороны",
       dataIndex: "client_name",
       key: "client_name",
-      width: 200,
-      render: (v, record) => (
-        <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
-          {v || record.entity_name || "—"}
-        </Text>
-      ),
+      width: 220,
+      render: (v, record) => {
+        // Платёжное поручение: отправитель → получатель
+        if (isPaymentOrder(record)) {
+          return (
+            <Space direction="vertical" size={0}>
+              <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: record.sender_name }}>
+                {record.sender_name || v || "—"}
+              </Text>
+              {record.receiver_name && (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  → {record.receiver_name}
+                </Text>
+              )}
+            </Space>
+          );
+        }
+        return (
+          <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
+            {v || record.entity_name || "—"}
+          </Text>
+        );
+      },
     },
     {
       title: "Сумма",
@@ -383,8 +405,8 @@ const Trash = () => {
                   Доступ запрещён
                 </Text>
                 <Text type="secondary" style={{ fontSize: 13 }}>
-                  Раздел «журнал удаление» доступен только сотрудникам Комплаенс и
-                  Валютного контроля.
+                  Раздел «журнал удаление» доступен только сотрудникам
+                  Комплаенс и Валютного контроля.
                 </Text>
               </div>
             }
@@ -417,9 +439,7 @@ const Trash = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // background:
-              //   "linear-gradient(135deg, #ff4b4b 0%, #d946ef 50%, #8b5cf6 100%)",
-              background: '#8b0000',
+              background: "#8b0000",
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -429,28 +449,34 @@ const Trash = () => {
           <div>
             <Title
               level={3}
-              style={{ margin: 0, fontWeight: 700, color: '#8b0000' }}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
             >
               Журнал удаление
             </Title>
             <Text type="secondary" style={{ fontSize: 13 }}>
-              Удалённые документы: контракты, доп. соглашения, инвойсы, ГТД
+              Удалённые документы: контракты, доп. соглашения, инвойсы, ГТД,
+              платёжные поручения
             </Text>
           </div>
         </Space>
 
         <Space>
           <Badge
-            // count={total}
             showZero
             overflowCount={9999}
             style={{ backgroundColor: "#ff4b4b" }}
           >
             <Button
-            danger
+              danger
               icon={<ReloadOutlined />}
               onClick={() => fetchTrash()}
-              style={{ borderRadius: 12, height: 35, background: '#8b0000', color: '#fff', border: '1px solid #8b0000' }}
+              style={{
+                borderRadius: 12,
+                height: 35,
+                background: "#8b0000",
+                color: "#fff",
+                border: "1px solid #8b0000",
+              }}
             >
               Обновить
             </Button>
@@ -476,15 +502,22 @@ const Trash = () => {
         bodyStyle={{ padding: 20 }}
       >
         <Space align="center" size={10} style={{ marginBottom: 16 }}>
-          <FilterOutlined style={{ color: "#8b0000", fontSize: 16, }} />
-          <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+          <FilterOutlined style={{ color: "#8b0000", fontSize: 16 }} />
+          <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
             Фильтры
           </Text>
         </Space>
 
         <Row gutter={[16, 16]} align="bottom">
           <Col xs={24} md={6} lg={6}>
-            <Text style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}>
+            <Text
+              style={{
+                display: "block",
+                marginBottom: 8,
+                fontSize: 14,
+                color: "#8b0000",
+              }}
+            >
               Тип документа
             </Text>
             <Select
@@ -495,12 +528,19 @@ const Trash = () => {
                 fetchTrash({ ...filters, entity_type: v, page: 1 });
               }}
               options={ENTITY_TYPES}
-              style={{ width: "100%", height: 35, border: '1px solid #8b0000' }}
+              style={{ width: "100%", height: 35, border: "1px solid #8b0000" }}
             />
           </Col>
 
           <Col xs={24} md={12} lg={13}>
-            <Text style={{ display: "block", marginBottom: 8, fontSize: 14, color: '#8b0000' }}>
+            <Text
+              style={{
+                display: "block",
+                marginBottom: 8,
+                fontSize: 14,
+                color: "#8b0000",
+              }}
+            >
               Поиск по номеру или клиенту
             </Text>
             <Input
@@ -526,8 +566,7 @@ const Trash = () => {
                   minWidth: 0,
                   borderRadius: 10,
                   height: 35,
-                  // background: "linear-gradient(90deg, #ff4b4b, #d946ef)",
-                  background: '#8b0000',
+                  background: "#8b0000",
                   border: "none",
                   boxShadow: "0 6px 16px rgba(217,70,239,0.28)",
                   fontWeight: 600,
@@ -551,6 +590,7 @@ const Trash = () => {
           </Col>
         </Row>
       </Card>
+
       <Card
         style={{
           borderRadius: 18,
@@ -573,7 +613,7 @@ const Trash = () => {
         >
           <Space size={10}>
             <DeleteOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: '#8b0000' }}>
+            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
               Удалённые документы
             </Text>
           </Space>
@@ -584,7 +624,7 @@ const Trash = () => {
               padding: "2px 12px",
               fontWeight: 600,
               fontSize: 13,
-              color: '#8b0000',
+              color: "#8b0000",
             }}
           >
             Всего: {total}
@@ -601,11 +641,11 @@ const Trash = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="small" style={{color: '#f00'}} />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table
-            className="red-table"
+              className="red-table"
               rowKey={(r) => `${r.entity_type}-${r.id}`}
               loading={loading}
               columns={columns}
@@ -616,11 +656,6 @@ const Trash = () => {
                 pageSize: pageSize,
                 total: total,
                 showSizeChanger: false,
-                // showTotal: (t) => (
-                //   <span style={{ color: "#ff4d4f", fontWeight: 600 }}>
-                //     Всего: {t}
-                //   </span>
-                // ),
                 onChange: (p) => {
                   setFilter("page", p);
                   fetchTrash({ ...filters, page: p });
@@ -642,11 +677,12 @@ const Trash = () => {
           )}
         </div>
       </Card>
+
       <Modal
         title={
           <Space size={10}>
             <FileTextOutlined style={{ color: "#8b0000", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, color: '#8b0000' }}>
+            <span style={{ fontWeight: 700, color: "#8b0000" }}>
               Детали удалённого документа
             </span>
           </Space>
@@ -671,7 +707,7 @@ const Trash = () => {
       >
         {detailLoading ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="small" style={{color: '#f00'}} />
+            <Spin size="small" style={{ color: "#f00" }} />
           </div>
         ) : detailError ? (
           <Empty
@@ -696,9 +732,7 @@ const Trash = () => {
                       detail.entity_type}
                   </Tag>
                   <Text strong style={{ fontFamily: "monospace" }}>
-                    {detail.number ||
-                      detail.contract_number ||
-                      `ID ${detail.id}`}
+                    {getDocNumber(detail) || `ID ${detail.id}`}
                   </Text>
                 </Space>
               }
@@ -724,20 +758,24 @@ const Trash = () => {
               </Descriptions.Item>
 
               <Descriptions.Item label="Номер">
-                {detail.number || detail.contract_number || "—"}
+                {getDocNumber(detail) || "—"}
               </Descriptions.Item>
 
               <Descriptions.Item label="Номер контракта">
                 {detail.contract_number || "—"}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Клиент">
-                {detail.client_name || "—"}
-              </Descriptions.Item>
+              {!isPaymentOrder(detail) && (
+                <>
+                  <Descriptions.Item label="Клиент">
+                    {detail.client_name || "—"}
+                  </Descriptions.Item>
 
-              <Descriptions.Item label="ID клиента">
-                {detail.client_id ?? "—"}
-              </Descriptions.Item>
+                  <Descriptions.Item label="ID клиента">
+                    {detail.client_id ?? "—"}
+                  </Descriptions.Item>
+                </>
+              )}
 
               <Descriptions.Item label="Сумма">
                 <Space size={4}>
@@ -777,6 +815,49 @@ const Trash = () => {
                 )}
               </Descriptions.Item>
             </Descriptions>
+
+            {/* ----- Данные платёжного поручения ----- */}
+            {isPaymentOrder(detail) && (
+              <>
+                <Divider style={{ margin: "16px 0" }}>
+                  Данные платёжного поручения
+                </Divider>
+                <Descriptions
+                  bordered
+                  column={2}
+                  size="small"
+                  labelStyle={{
+                    background: "#fafafa",
+                    fontWeight: 600,
+                    fontSize: 12,
+                    width: 160,
+                  }}
+                  contentStyle={{ fontSize: 13 }}
+                >
+                  <Descriptions.Item label="Дата валютирования" span={2}>
+                    <Space size={4}>
+                      <CalendarOutlined style={{ color: "#8b0000" }} />
+                      {formatDate(detail.value_date)}
+                    </Space>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Отправитель">
+                    {detail.sender_name || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Получатель">
+                    {detail.receiver_name || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Банк получателя">
+                    {detail.receiver_bank || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Страна получателя">
+                    {detail.receiver_country || "—"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Назначение платежа" span={2}>
+                    {detail.payment_purpose || "—"}
+                  </Descriptions.Item>
+                </Descriptions>
+              </>
+            )}
 
             <Divider style={{ margin: "16px 0" }} />
 
@@ -877,7 +958,7 @@ const Trash = () => {
               </Button>
 
               <Button
-              danger
+                danger
                 icon={<DownloadOutlined />}
                 onClick={() => handleOpenFile(detail)}
                 style={{ borderRadius: 10 }}

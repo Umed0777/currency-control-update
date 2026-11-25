@@ -224,15 +224,13 @@ const HomePage = () => {
     //   visible: true,
     // },
     {
-      key: "users",
-      title: "Пользователи",
-      desc: "Управление ролями и доступами",
-      icon: <TeamOutlined />,
-      onClick: isAdminOrCompliance
-        ? () => navigate("/users-manage")
-        : undefined,
-      visible: isAdminOrCompliance,
-    },
+  key: "users",
+  title: "Пользователи",
+  desc: "Управление ролями и доступами",
+  icon: <TeamOutlined />,
+  onClick: normalizedRole === "admin" ? () => navigate("/users-manage") : undefined,
+  visible: normalizedRole === "admin",
+},
     {
       key: "documents",
       title: "Мои документы",

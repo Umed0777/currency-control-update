@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Table,
   Button,
@@ -34,9 +34,13 @@ import {
   FileTextOutlined,
   ClockCircleOutlined,
   WarningOutlined,
+  PhoneOutlined,
+  MinusCircleOutlined,
 } from "@ant-design/icons";
 
 import { useParams, useNavigate } from "react-router-dom";
+
+import { addCompanyPhones } from "../api/branchDashboard.service";
 
 import { useBranchDashboardStore } from "../store/useBranchDashboard";
 import { useBranchesAllStore } from "../store/useBranchesAll";
@@ -62,6 +66,7 @@ const CAN_MANAGE_USERS = ["admin", "compliance"];
 const CAN_VIEW_HISTORY = ["admin", "compliance"];
 
 const PHONE_SEPARATOR = ";";
+const PHONE_PATTERN = /^\d{9,12}$/;
 
 const toArrayOfStrings = (value) => {
   if (Array.isArray(value)) {
@@ -195,7 +200,7 @@ const getStatusLabel = (status) => {
     gtd_deadline: "Дедлайн ГТД",
     closed: "Закрыт",
     active: "Активен",
-    overdue: "Просрочен",          // ← добавлено
+    overdue: "Просрочен",
   };
   return map[status] || status;
 };
@@ -238,17 +243,20 @@ const BranchDashboard = () => {
 
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [phonesForm] = Form.useForm();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isPhonesOpen, setIsPhonesOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
+  const [phonesCompany, setPhonesCompany] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [searchValue, setSearchValue] = useState("");
   const [searchType, setSearchType] = useState("name");
   const [notifFilter, setNotifFilter] = useState("all");
-
+  const submitLock = useRef(false);
   const safeCompanies = Array.isArray(companies) ? companies : [];
   const safeNotifications = Array.isArray(notifications) ? notifications : [];
 
@@ -306,10 +314,7 @@ const BranchDashboard = () => {
       return {
         ...n,
         _key: String(
-          n.contract_id ??
-            n.invoice_id ??
-            n.contract_number ??
-            `notif-${idx}`
+          n.contract_id ?? n.invoice_id ?? n.contract_number ?? `notif-${idx}`,
         ),
         _days: days,
         _urgency: getUrgency(days),
@@ -361,36 +366,44 @@ const BranchDashboard = () => {
     setSubmitting(false);
     createForm.resetFields();
   };
-
   const handleCreateSubmit = async () => {
-    if (submitting) return;
-    let values;
+    if (submitLock.current) return;
+    submitLock.current = true;
     try {
-      values = await createForm.validateFields();
-    } catch {
-      return;
-    }
-    setSubmitting(true);
-    const inn = String(values.inn).trim();
-
-    try {
-      await addCompany(branchId, { inn });
+      let values;
       try {
-        await fetchDashboard(branchId);
-      } catch (refreshErr) {
-        console.warn("Не удалось обновить список после создания:", refreshErr);
+        values = await createForm.validateFields();
+      } catch {
+        return;
       }
-      message.success("Карточка создана");
-      setIsCreateOpen(false);
-    } catch (e) {
-      console.error("Ошибка создания:", e?.response?.data || e);
-      message.error(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          "Не удалось создать карточку"
-      );
+
+      setSubmitting(true);
+      const inn = String(values.inn).replace(/\D/g, "");
+
+      try {
+        await addCompany(branchId, { inn });
+        try {
+          await fetchDashboard(branchId);
+        } catch (refreshErr) {
+          console.warn(
+            "Не удалось обновить список после создания:",
+            refreshErr,
+          );
+        }
+        message.success("Карточка создана");
+        setIsCreateOpen(false);
+      } catch (e) {
+        console.error("Ошибка создания:", e?.response?.data || e);
+        message.error(
+          e?.response?.data?.error ||
+            e?.response?.data?.message ||
+            "Не удалось создать карточку",
+        );
+      } finally {
+        setSubmitting(false);
+      }
     } finally {
-      setSubmitting(false);
+      submitLock.current = false;
     }
   };
 
@@ -455,7 +468,10 @@ const BranchDashboard = () => {
       try {
         await fetchDashboard(branchId);
       } catch (refreshErr) {
-        console.warn("Не удалось обновить список после редактирования:", refreshErr);
+        console.warn(
+          "Не удалось обновить список после редактирования:",
+          refreshErr,
+        );
       }
       message.success("Карточка обновлена");
       setIsEditOpen(false);
@@ -464,7 +480,89 @@ const BranchDashboard = () => {
       message.error(
         e?.response?.data?.error ||
           e?.response?.data?.message ||
-          "Не удалось обновить карточку"
+          "Не удалось обновить карточку",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ===== ДОБАВЛЕНИЕ НЕСКОЛЬКИХ ТЕЛЕФОНОВ =====
+  const openPhones = (e, record) => {
+    e?.stopPropagation?.();
+    setPhonesCompany(record);
+    phonesForm.setFieldsValue({ phones: [""] });
+    setIsPhonesOpen(true);
+  };
+
+  const handlePhonesCancel = () => {
+    if (submitting) return;
+    setIsPhonesOpen(false);
+  };
+
+  const handlePhonesAfterClose = () => {
+    setPhonesCompany(null);
+    setSubmitting(false);
+    phonesForm.resetFields();
+  };
+
+  const handlePhonesSubmit = async () => {
+    if (submitting) return;
+    if (!phonesCompany) {
+      message.error("Компания не выбрана");
+      return;
+    }
+
+    let values;
+    try {
+      values = await phonesForm.validateFields();
+    } catch {
+      return;
+    }
+
+    const existing = toArrayOfStrings(phonesCompany.phones);
+    const newPhones = [
+      ...new Set(
+        (values.phones || [])
+          .map((p) => String(p || "").trim())
+          .filter(Boolean),
+      ),
+    ].filter((p) => !existing.includes(p));
+
+    if (!newPhones.length) {
+      message.warning("Нет новых номеров для добавления");
+      return;
+    }
+
+    const companyId = phonesCompany.id ?? phonesCompany.company_id;
+    if (!companyId) {
+      message.error("Не найден ID компании");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // POST /api/branches/:branchId/dashboard/companies/:companyId/phones
+      // отправляем только новые номера
+      const res = await addCompanyPhones(branchId, companyId, newPhones);
+      console.log("addCompanyPhones response:", res);
+
+      try {
+        await fetchDashboard(branchId);
+      } catch (refreshErr) {
+        console.warn(
+          "Не удалось обновить список после добавления номеров:",
+          refreshErr,
+        );
+      }
+      message.success("Номера добавлены");
+      setIsPhonesOpen(false);
+    } catch (e) {
+      console.error("Ошибка добавления номеров:", e?.response?.data || e);
+      message.error(
+        e?.response?.data?.error ||
+          e?.response?.data?.message ||
+          "Не удалось добавить номера",
       );
     } finally {
       setSubmitting(false);
@@ -490,7 +588,7 @@ const BranchDashboard = () => {
       message.error(
         e?.response?.data?.error ||
           e?.response?.data?.message ||
-          "Не удалось удалить карточку"
+          "Не удалось удалить карточку",
       );
     }
   };
@@ -586,7 +684,10 @@ const BranchDashboard = () => {
       key: "company_name",
       width: 180,
       render: (v, record) => (
-        <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v || record.title }}>
+        <Text
+          style={{ fontSize: 13 }}
+          ellipsis={{ tooltip: v || record.title }}
+        >
           {v || record.title || "—"}
         </Text>
       ),
@@ -709,7 +810,10 @@ const BranchDashboard = () => {
       key: "inn",
       width: 160,
       render: (v) => (
-        <Text type="secondary" style={{ fontSize: 13, fontFamily: "monospace" }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: 13, fontFamily: "monospace" }}
+        >
           {v || "—"}
         </Text>
       ),
@@ -729,11 +833,20 @@ const BranchDashboard = () => {
       title: "Телефоны",
       dataIndex: "phones",
       key: "phones",
-      width: 280,
+      width: 220,
       render: (phones) => {
         const list = toArrayOfStrings(phones);
         if (list.length === 0) return <Text type="secondary">—</Text>;
-        return <Text style={{ fontSize: 14 }}>{list.join("; ")}</Text>;
+        // каждый номер с новой строки
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {list.map((p, i) => (
+              <Text key={`${p}-${i}`} style={{ fontSize: 14 }}>
+                {p}
+              </Text>
+            ))}
+          </div>
+        );
       },
     },
     {
@@ -800,12 +913,21 @@ const BranchDashboard = () => {
           {
             title: "Действие",
             key: "actions",
-            width: 110,
+            width: 150,
             align: "right",
             render: (_, record) => {
               const id = record.id ?? record.company_id;
               return (
                 <Space>
+                  {canEdit && (
+                    <Tooltip title="Добавить телефоны">
+                      <Button
+                        type="text"
+                        icon={<PhoneOutlined style={{ color: "#8b0000" }} />}
+                        onClick={(e) => openPhones(e, record)}
+                      />
+                    </Tooltip>
+                  )}
                   {canEdit && (
                     <Tooltip title="Редактировать">
                       <Button
@@ -893,7 +1015,10 @@ const BranchDashboard = () => {
             <BankOutlined style={{ fontSize: 16, color: "#fff" }} />
           </div>
           <div>
-            <Title level={3} style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}>
+            <Title
+              level={3}
+              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
+            >
               {branch ? ` ${branch.name}` : ""}
             </Title>
             <Space size={10} style={{ marginTop: 4 }}>
@@ -1056,7 +1181,10 @@ const BranchDashboard = () => {
           </Col>
         </Row>
 
-        <Text type="secondary" style={{ display: "block", marginTop: 10, fontSize: 12 }}>
+        <Text
+          type="secondary"
+          style={{ display: "block", marginTop: 10, fontSize: 12 }}
+        >
           Выберите поле поиска (Название / ИНН / Сумма), введите значение и
           нажмите «Поиск».
         </Text>
@@ -1112,7 +1240,7 @@ const BranchDashboard = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="small" style={{color: '#f00'}} />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table
@@ -1148,7 +1276,9 @@ const BranchDashboard = () => {
                 emptyText: (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={<span style={{ color: "#999" }}>Компаний пока нет</span>}
+                    description={
+                      <span style={{ color: "#999" }}>Компаний пока нет</span>
+                    }
                   />
                 ),
               }}
@@ -1262,7 +1392,7 @@ const BranchDashboard = () => {
 
         {loadingNotifications ? (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
-            <Spin size="small" style={{color: '#f00'}}/>
+            <Spin size="small" style={{ color: "#f00" }} />
           </div>
         ) : visibleNotifications.length === 0 ? (
           <Empty
@@ -1362,12 +1492,21 @@ const BranchDashboard = () => {
             name="inn"
             rules={[
               { required: true, message: "Введите ИНН" },
-              { len: 9, message: "ИНН должен содержать 9 цифр" },
+              {
+                pattern: /^\d{9}$/,
+                message: "ИНН должен содержать ровно 9 цифр",
+              },
             ]}
           >
             <Input
               placeholder="Введите ИНН"
-              maxLength={9}
+              // maxLength={9}
+              inputMode="numeric"
+              onChange={(e) =>
+                createForm.setFieldsValue({
+                  inn: e.target.value.replace(/\D/g, ""),
+                })
+              }
               onPressEnter={handleCreateSubmit}
               style={{ borderRadius: 10 }}
             />
@@ -1421,17 +1560,6 @@ const BranchDashboard = () => {
         ]}
       >
         <Form form={editForm} layout="vertical" autoComplete="off">
-          {editingCompany?.client_type !== "legal_entity" &&
-            editingCompany?.client_type !== "Юридическое лицо" && (
-              <Form.Item label="ФИО" name="name">
-                <Input
-                  maxLength={500}
-                  placeholder="Введите ФИО"
-                  style={{ borderRadius: 10 }}
-                />
-              </Form.Item>
-            )}
-
           <Form.Item
             label="Название компании"
             name="llc"
@@ -1481,6 +1609,124 @@ const BranchDashboard = () => {
               style={{ borderRadius: 10 }}
             />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ===== МОДАЛКА ДОБАВЛЕНИЯ ТЕЛЕФОНОВ ===== */}
+      <Modal
+        title={
+          <span style={{ fontWeight: 700, color: "#8b0000" }}>
+            Добавить телефоны
+          </span>
+        }
+        open={isPhonesOpen}
+        onCancel={handlePhonesCancel}
+        afterClose={handlePhonesAfterClose}
+        maskClosable={false}
+        keyboard={false}
+        destroyOnHidden
+        forceRender
+        width={500}
+        style={{ top: 150 }}
+        footer={[
+          <Button
+            key="submit"
+            danger
+            type="primary"
+            icon={<CheckOutlined />}
+            loading={submitting}
+            onClick={handlePhonesSubmit}
+            style={{
+              borderRadius: 10,
+              background: "#8b0000",
+              border: "1px solid #8b0000",
+            }}
+          >
+            Сохранить
+          </Button>,
+          <Button
+            key="cancel"
+            danger
+            icon={<CloseOutlined />}
+            disabled={submitting}
+            onClick={handlePhonesCancel}
+            style={{ borderRadius: 10 }}
+          >
+            Отмена
+          </Button>,
+        ]}
+      >
+        {phonesCompany && (
+          <Text
+            type="secondary"
+            style={{ display: "block", marginBottom: 12, fontSize: 13 }}
+          >
+            {phonesCompany.llc || phonesCompany.name || ""}
+          </Text>
+        )}
+
+        {toArrayOfStrings(phonesCompany?.phones).length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Уже сохранены:
+            </Text>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {toArrayOfStrings(phonesCompany?.phones).map((p, i) => (
+                <Text key={`${p}-${i}`}>{p}</Text>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Form form={phonesForm} layout="vertical" autoComplete="off">
+          <Text strong style={{ display: "block", marginBottom: 8 }}>
+            Новые номера:
+          </Text>
+          <Form.List name="phones">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <Space
+                    key={field.key}
+                    align="baseline"
+                    style={{ display: "flex" }}
+                  >
+                    <Form.Item
+                      {...field}
+                      style={{ width: 400 }}
+                      rules={[
+                        {
+                          pattern: PHONE_PATTERN,
+                          message: "Только цифры, от 9 до 12 символов",
+                        },
+                      ]}
+                    >
+                      <Input
+                        placeholder="Например: 992900202020"
+                        maxLength={12}
+                        style={{ borderRadius: 10 }}
+                      />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <MinusCircleOutlined
+                        style={{ color: "#8b0000" }}
+                        onClick={() => remove(field.name)}
+                      />
+                    )}
+                  </Space>
+                ))}
+                <Button
+                  type="dashed"
+                  onClick={() => add("")}
+                  icon={<PlusOutlined />}
+                  block
+                  style={{ borderRadius: 10 }}
+                >
+                  Добавить ещё номер
+                </Button>
+              </>
+            )}
+          </Form.List>
         </Form>
       </Modal>
     </div>

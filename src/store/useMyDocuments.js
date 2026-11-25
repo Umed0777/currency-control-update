@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { getMyDocuments } from "../api/myDocuments.service";
+// ВАЖНО: Убедитесь, что путь к axios-инстансу правильный
+import API_URL_AUTH from "../api/auth.service"; 
 
 const DEFAULT_FILTERS = {
   scope: "all",
@@ -63,10 +65,7 @@ export const useMyDocumentsStore = create((set, get) => ({
         },
       });
     } catch (error) {
-      console.error(
-        "Ошибка fetchMyDocuments:",
-        error?.response?.data || error
-      );
+      console.error("Ошибка fetchMyDocuments:", error?.response?.data || error);
       set({
         error:
           error?.response?.data?.error ||
@@ -76,6 +75,39 @@ export const useMyDocumentsStore = create((set, get) => ({
       });
     } finally {
       set({ loading: false });
+    }
+  },
+
+  // ==========================================
+  // ИСПРАВЛЕННАЯ ФУНКЦИЯ РЕСАБМИТА
+  // ==========================================
+  resubmitDocument: async (entityType, entityId, payload) => {
+    try {
+      const { branchId, companyId, contractId, invoiceId, agreementId } = payload;
+
+      let url = "";
+      // Формируем правильный URL в зависимости от типа документа.
+      // ПРИМЕЧАНИЕ: Сверьте этот URL со Swagger вашего бэкенда!
+      // Я использую структуру, аналогичную вашим PUT-запросам.
+      
+      if (entityType === "payment_order") {
+        url = `/api/branches/${branchId}/companies/${companyId}/contracts/${contractId}/invoices/${invoiceId}/payment_orders/${entityId}/resubmit/`;
+      } else if (entityType === "gtd") {
+        url = `/api/branches/${branchId}/companies/${companyId}/contracts/${contractId}/gtd/${entityId}/resubmit/`;
+      } else {
+        // На случай других типов
+        url = `/api/branches/${branchId}/companies/${companyId}/contracts/${contractId}/${entityType}/${entityId}/resubmit/`;
+      }
+
+      // Если у вас есть доп. соглашение, возможно URL должен быть длиннее:
+      // if (agreementId) url = `/api/.../agreements/${agreementId}/...`;
+
+      // Метод тоже проверьте (POST или PATCH)
+      const response = await API_URL_AUTH.post(url, { comment: payload.comment });
+      return response.data;
+    } catch (error) {
+      console.error("Ошибка в resubmitDocument:", error);
+      throw error;
     }
   },
 

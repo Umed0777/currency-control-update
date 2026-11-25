@@ -16,19 +16,26 @@ import {
   Modal,
   Select,
   Descriptions,
-  Badge,
   Divider,
   Avatar,
+  Alert,
+  Form,
+  Input,
+  InputNumber,
+  DatePicker,
 } from "antd";
+import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 
 import {
   SearchOutlined,
   FilterOutlined,
   ReloadOutlined,
   EyeOutlined,
+  EditOutlined,
+  SendOutlined,
   FileTextOutlined,
   CloseOutlined,
-  UserOutlined,
   CalendarOutlined,
   DollarOutlined,
   ArrowLeftOutlined,
@@ -43,17 +50,23 @@ import {
 
 import { useMyDocumentsStore } from "../store/useMyDocuments";
 import { useAuthStore } from "../store/useAuth";
+import { useBranchDashboardStore } from "../store/useBranchDashboard";
+import { useContractStore } from "../store/useContractStore";
+import { searchCurrencies, searchCountries } from "../api/dictionary.service";
+import { updateGtd } from "../api/gtd.service";
+import { updatePaymentOrder } from "../api/paymentOrder.service";
+
+dayjs.extend(customParseFormat);
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
 
-// ==== Справочники ====
+const RED = "#8b0000";
+
 const ENTITY_TYPES = [
   { value: "all", label: "Все типы" },
-  // { value: "contract", label: "Контракты" },
-  // { value: "additional_agreement", label: "Доп. соглашения" },
-  // { value: "invoice", label: "Инвойсы" },
   { value: "gtd", label: "ГТД" },
-  { value: "payment_order", label: "Платежные поручения" }, // Исправлена опечатка
+  { value: "payment_order", label: "Платежные поручения" },
 ];
 
 const ENTITY_TYPE_LABELS = {
@@ -61,7 +74,7 @@ const ENTITY_TYPE_LABELS = {
   additional_agreement: "Доп. соглашение",
   invoice: "Инвойс",
   gtd: "ГТД",
-  payment_order: "Платежное поручение" // Исправлена опечатка
+  payment_order: "Платежное поручение",
 };
 
 const ENTITY_TYPE_COLORS = {
@@ -78,15 +91,15 @@ const STATUS_OPTIONS = [
   { value: "revision_required", label: "На доработке" },
   { value: "approved", label: "Одобрено" },
   { value: "rejected", label: "Отклонено" },
-  // --- ДОБАВЛЕН НОВЫЙ СТАТУС В ФИЛЬТР ---
-  // { value: "rejected_currency_control", label: "Отклонено валютным контролем" },
+  { value: "rejected_currency_control", label: "Отклонено валютным контролем" },
+  { value: "rejected_compliance", label: "Отклонено комплаенсом" },
 ];
 
 const STATUS_MAP = {
   pending_currency_control: {
     label: "На валютном контроле",
     color: "orange",
-    icon: <SyncOutlined spin />,
+    icon: <SyncOutlined spin  />,
   },
   pending_compliance: {
     label: "На комплаенсе",
@@ -98,28 +111,66 @@ const STATUS_MAP = {
     color: "volcano",
     icon: <ExclamationCircleOutlined />,
   },
-  approved: {
-    label: "Одобрено",
-    color: "green",
-    icon: <CheckOutlined />,
+  revision: {
+    label: "На доработке",
+    color: "volcano",
+    icon: <ExclamationCircleOutlined />,
   },
-  rejected: {
-    label: "Отклонено",
-    color: "red",
-    icon: <CloseCircleOutlined />,
-  },
-  // --- ДОБАВЛЕН НОВЫЙ СТАТУС В СЛОВАРЬ (С ИКОНКОЙ И КРАСНЫМ ЦВЕТОМ) ---
+  approved: { label: "Одобрено", color: "green", icon: <CheckOutlined /> },
+  rejected: { label: "Отклонено", color: "red", icon: <CloseCircleOutlined /> },
   rejected_currency_control: {
     label: "Отклонено валютным контролем",
     color: "red",
     icon: <CloseCircleOutlined />,
   },
+  rejected_compliance: {
+    label: "Отклонено комплаенсом",
+    color: "red",
+    icon: <CloseCircleOutlined />,
+  },
+};
+
+const DECISION_MAP = {
+  approve: { label: "Одобрено", color: "green" },
+  approved: { label: "Одобрено", color: "green" },
+  accepted: { label: "Принято", color: "green" },
+  reject: { label: "Отклонено", color: "red" },
+  rejected: { label: "Отклонено", color: "red" },
+  revision: { label: "На доработке", color: "volcano" },
+  revision_required: { label: "На доработке", color: "volcano" },
 };
 
 const SCOPE_OPTIONS = [
   { value: "all", label: "Все документы" },
   { value: "mine", label: "Только мои" },
 ];
+
+const REVISION_STATUSES = ["revision_required", "revision"];
+const isRevision = (record) =>
+  !!record && REVISION_STATUSES.includes(record.approval_status);
+
+const isRevisionDecision = (d) => REVISION_STATUSES.includes(d);
+
+const getRevisionInfo = (record) => {
+  if (!record) return { stage: "", reason: "" };
+
+  const cc = record.currency_control_decision;
+  const cp = record.compliance_decision;
+
+  if (isRevisionDecision(cc) && record.currency_control_comment) {
+    return { stage: "Валютный контроль", reason: record.currency_control_comment };
+  }
+  if (isRevisionDecision(cp) && record.compliance_comment) {
+    return { stage: "Комплаенс", reason: record.compliance_comment };
+  }
+  if (record.currency_control_comment) {
+    return { stage: "Валютный контроль", reason: record.currency_control_comment };
+  }
+  if (record.compliance_comment) {
+    return { stage: "Комплаенс", reason: record.compliance_comment };
+  }
+  return { stage: "", reason: record.rejection_reason || "" };
+};
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -136,6 +187,7 @@ const formatDateTime = (value) => {
 
 const formatDate = (value) => {
   if (!value) return "—";
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(String(value))) return value;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("ru-RU", {
@@ -154,13 +206,127 @@ const formatMoney = (value, currency) => {
 
 const getPersonName = (person) => {
   if (!person) return "";
-  const surname = person.first_name || "";
-  const name = person.last_name || "";
-  return [surname, name].filter(Boolean).join(" ").trim();
+  return [person.first_name, person.last_name].filter(Boolean).join(" ").trim();
+};
+
+const toDayjs = (v) => {
+  if (!v) return null;
+  const d = dayjs(v, ["DD.MM.YYYY", "YYYY-MM-DD", "YYYY-MM-DDTHH:mm:ss"], true);
+  if (d.isValid()) return d;
+  const loose = dayjs(v);
+  return loose.isValid() ? loose : null;
+};
+
+const fmtApi = (d) => (d ? d.format("YYYY-MM-DD") : null);
+
+const cleanErrorText = (value) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value.map(cleanErrorText).filter(Boolean).join("; ");
+  }
+  if (typeof value === "object") {
+    const direct = value.error ?? value.detail ?? value.message;
+    if (direct !== undefined && direct !== null) return cleanErrorText(direct);
+    return Object.values(value).map(cleanErrorText).filter(Boolean).join("; ");
+  }
+  return String(value);
+};
+
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.results)) return value.results;
+  return [];
+};
+
+const pick = (...vals) =>
+  vals.find((v) => v !== undefined && v !== null && v !== "");
+
+const normName = (v) =>
+  String(v ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const resolveCompanyId = async (record, branchId, contractId) => {
+  const direct = pick(
+    record.company_id,
+    record.company?.id,
+    record.counterparty_id,
+  );
+  if (direct) return direct;
+
+  const name = normName(record.counterparty_name);
+  if (!branchId || !name) return null;
+
+  try {
+    await useBranchDashboardStore
+      .getState()
+      .fetchDashboard(branchId, { query: "", search_type: "name" });
+  } catch (e) {
+    console.warn("Не удалось загрузить компании филиала:", e);
+  }
+
+  const list = toArray(useBranchDashboardStore.getState().companies);
+  const candidates = list.filter((c) =>
+    [c.llc, c.name, c.company_name].some((v) => normName(v) === name),
+  );
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].id ?? candidates[0].company_id;
+
+  for (const c of candidates) {
+    const cid = c.id ?? c.company_id;
+    if (!cid) continue;
+    try {
+      await useContractStore.getState().fetchContracts(branchId, cid);
+      const contracts = toArray(useContractStore.getState().contracts);
+      if (contracts.some((k) => String(k.id) === String(contractId))) {
+        return cid;
+      }
+    } catch (e) {
+      console.warn("Не удалось проверить контракты компании:", e);
+    }
+  }
+  return null;
+};
+
+const buildEditValues = (record) => {
+  if (!record) return {};
+
+  if (record.entity_type === "payment_order") {
+    return {
+      value_date: toDayjs(record.value_date || record.document_date),
+      amount:
+        record.amount !== null && record.amount !== undefined
+          ? Number(record.amount)
+          : undefined,
+      currency: record.currency || undefined,
+      sender_name: record.sender_name || "",
+      receiver_name: record.receiver_name || "",
+      receiver_bank: record.receiver_bank || "",
+      receiver_country: record.receiver_country || undefined,
+      payment_purpose: record.payment_purpose || "",
+      resubmit_comment: "",
+    };
+  }
+
+  return {
+    gtd_number: record.document_number || "",
+    gtd_date: toDayjs(record.document_date),
+    gtd_amount:
+      record.amount !== null && record.amount !== undefined
+        ? Number(record.amount)
+        : undefined,
+    resubmit_comment: "",
+  };
 };
 
 const MyDocuments = () => {
   const navigate = useNavigate();
+  const { branchId: userBranchId } = useAuthStore();
 
   const {
     items,
@@ -176,17 +342,78 @@ const MyDocuments = () => {
     clearError,
   } = useMyDocumentsStore();
 
-  const { role } = useAuthStore();
-
   const [searchValue, setSearchValue] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailDoc, setDetailDoc] = useState(null);
+
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editDoc, setEditDoc] = useState(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editFileList, setEditFileList] = useState([]);
+  const [editForm] = Form.useForm();
+
+  const [currencies, setCurrencies] = useState([]);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+
+  const [countries, setCountries] = useState([]);
+  const [loadingCountries, setLoadingCountries] = useState(false);
 
   const safeItems = Array.isArray(items) ? items : [];
 
   useEffect(() => {
     fetchMyDocuments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const loadDictionaries = async () => {
+      setLoadingCurrencies(true);
+      try {
+        const data = await searchCurrencies("");
+        const fallbackNames = {
+          CNY: "Китайский юань", EUR: "Евро", GBP: "Английский фунт стерлингов",
+          GEL: "Грузинский лари", JPY: "Японская иена", KGS: "Кыргызский сом",
+          KZT: "Казахский тенге", RUB: "Российский рубль", USD: "Доллар США",
+          TJS: "Таджикский сомони",
+        };
+
+        const formattedCurrencies = (data || []).map((item) => {
+          if (typeof item === "string") {
+            return {
+              value: item,
+              label: fallbackNames[item] ? `${item} - ${fallbackNames[item]}` : item,
+            };
+          }
+          const code = String(item.code || item.iso_code || item.currency_code || item.value || item.id || "").toUpperCase();
+          let name = item.name_ru || item.name || item.title || item.label || item.description || "";
+          if (!name && fallbackNames[code]) name = fallbackNames[code];
+          return { value: code, label: name ? `${code} - ${name}` : code };
+        });
+        setCurrencies(formattedCurrencies);
+      } catch (err) {
+        message.error("Не удалось загрузить список валют");
+      } finally {
+        setLoadingCurrencies(false);
+      }
+
+      setLoadingCountries(true);
+      try {
+        const data = await searchCountries("");
+        const formattedCountries = (data || []).map((item) => {
+          if (typeof item === "string") {
+            return { value: item, label: item };
+          }
+          const val = String(item.name_ru || item.name || item.title || item.id || "");
+          return { value: val, label: val };
+        });
+        setCountries(formattedCountries);
+      } catch (err) {
+        message.error("Не удалось загрузить список стран");
+      } finally {
+        setLoadingCountries(false);
+      }
+    };
+
+    loadDictionaries();
   }, []);
 
   useEffect(() => {
@@ -222,6 +449,151 @@ const MyDocuments = () => {
   const handleCloseDetail = () => {
     setIsDetailOpen(false);
     setDetailDoc(null);
+  };
+
+  const handleOpenEdit = (record) => {
+    setEditDoc(record);
+    setEditFileList([]);
+    setIsEditOpen(true);
+  };
+
+  const closeEditModal = () => {
+    if (editSubmitting) return;
+    setIsEditOpen(false);
+    setEditDoc(null);
+    setEditFileList([]);
+    editForm.resetFields();
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editDoc || editSubmitting) return;
+
+    let values;
+    try {
+      values = await editForm.validateFields();
+    } catch {
+      return;
+    }
+
+    const isPO = editDoc.entity_type === "payment_order";
+    const comment = values.resubmit_comment?.trim() || "";
+    const file = editFileList[0]?.originFileObj || editFileList[0] || null;
+
+    const branchId = pick(editDoc.branch_id, editDoc.branch?.id, userBranchId);
+    const contractId = pick(editDoc.contract_id, editDoc.contract?.id);
+    const invoiceId = pick(editDoc.invoice_id, editDoc.invoice?.id);
+    const agreementId = pick(editDoc.additional_agreement_id, editDoc.agreement_id) ?? null;
+    const entityId = editDoc.entity_id;
+
+    const missingBase = [
+      !branchId && "branch_id",
+      !contractId && "contract_id",
+      isPO && !invoiceId && "invoice_id",
+    ].filter(Boolean);
+
+    if (missingBase.length) {
+      message.error(`Бэкенд не вернул: ${missingBase.join(", ")}`);
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const companyId = await resolveCompanyId(editDoc, branchId, contractId);
+
+      if (!companyId) {
+        message.error("Не удалось определить компанию документа.");
+        return;
+      }
+
+      // 1) PUT — сохраняем исправленные данные И ОТПРАВЛЯЕМ В ВАЛЮТНЫЙ КОНТРОЛЬ
+      if (isPO) {
+        await updatePaymentOrder(
+          branchId,
+          companyId,
+          contractId,
+          invoiceId,
+          entityId,
+          {
+            operation_date:
+              fmtApi(toDayjs(editDoc.operation_date)) ||
+              fmtApi(values.value_date),
+            payment_order_number:
+              editDoc.payment_order_number || editDoc.document_number || "",
+            value_date: fmtApi(values.value_date),
+            amount: values.amount,
+            currency: values.currency,
+            payer: values.sender_name,
+            sender_name: values.sender_name,
+            sender_bank: editDoc.sender_bank || "Актив Банк",
+            sender_country: editDoc.sender_country || "Таджикистан",
+            receiver_name: values.receiver_name,
+            receiver_bank: values.receiver_bank,
+            receiver_country: values.receiver_country,
+            payment_purpose: values.payment_purpose,
+            document: file,
+            // 👇 Отправляем статус для валютного контроля
+            approval_status: "pending_currency_control",
+            comment: comment,
+          },
+          agreementId,
+        );
+      } else {
+        await updateGtd(branchId, companyId, contractId, entityId, {
+          gtd_number: values.gtd_number,
+          gtd_date: fmtApi(values.gtd_date),
+          gtd_amount: values.gtd_amount,
+          gtd_currency: editDoc.currency || "USD",
+          document_type: "gtd",
+          invoice_id: invoiceId || null,
+          document: file,
+          // 👇 Отправляем статус для валютного контроля
+          approval_status: "pending_currency_control",
+          comment: comment,
+        });
+      }
+
+      message.success("Документ исправлен и отправлен в валютный контроль");
+      setIsEditOpen(false);
+      setEditDoc(null);
+      setEditFileList([]);
+      editForm.resetFields();
+      await fetchMyDocuments();
+    } catch (e) {
+      message.error(
+        cleanErrorText(e?.response?.data) ||
+          e?.message ||
+          "Не удалось сохранить документ",
+      );
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const renderRevisionAlert = (record, { compact = false } = {}) => {
+    const { stage, reason } = getRevisionInfo(record);
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        style={{
+          borderRadius: 10,
+          border: "1px solid #ffbb96",
+          background: "#fff2e8",
+          padding: compact ? "4px 10px" : undefined,
+          marginBottom: compact ? 0 : 16,
+        }}
+        message={
+          <Text strong style={{ fontSize: compact ? 12 : 14, color: "#d4380d" }}>
+            {stage ? `${stage}: посмотрите причину` : "Посмотрите причину"}
+          </Text>
+        }
+        description={
+          <Text style={{ fontSize: compact ? 12 : 13 }}>
+            {reason || "Причина не указана"}
+          </Text>
+        }
+      />
+    );
   };
 
   const columns = [
@@ -282,17 +654,6 @@ const MyDocuments = () => {
         </Tag>
       ),
     },
-    // {
-    //   title: "Предмет",
-    //   dataIndex: "subject",
-    //   key: "subject",
-    //   width: 220,
-    //   render: (v) => (
-    //     <Text style={{ fontSize: 13 }} ellipsis={{ tooltip: v }}>
-    //       {v || "—"}
-    //     </Text>
-    //   ),
-    // },
     {
       title: "Название компании",
       dataIndex: "counterparty_name",
@@ -308,7 +669,7 @@ const MyDocuments = () => {
       title: "Сумма",
       dataIndex: "amount",
       key: "amount",
-      width: 240,
+      width: 160,
       render: (v, record) => (
         <Text strong style={{ fontSize: 13, color: "#d946ef" }}>
           {formatMoney(v, record.currency)}
@@ -333,7 +694,7 @@ const MyDocuments = () => {
       title: "Статус",
       dataIndex: "approval_status",
       key: "approval_status",
-      width: 190,
+      width: 300,
       render: (v) => {
         const info = STATUS_MAP[v] || {
           label: v || "—",
@@ -351,6 +712,7 @@ const MyDocuments = () => {
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
+              margin: 0,
             }}
           >
             {info.label}
@@ -362,7 +724,7 @@ const MyDocuments = () => {
       title: "Дата",
       dataIndex: "document_date",
       key: "document_date",
-      width: 940,
+      width: 260,
       align: "center",
       render: (v) => (
         <Space size={4}>
@@ -375,7 +737,7 @@ const MyDocuments = () => {
       title: "Создан",
       dataIndex: "created_at",
       key: "created_at",
-      width: 800,
+      width: 160,
       align: "center",
       render: (v) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -386,19 +748,203 @@ const MyDocuments = () => {
     {
       title: "Действие",
       key: "actions",
-      width: 340,
+      width: 120,
       align: "center",
       render: (_, record) => (
-        <Tooltip title="Подробнее">
-          <Button
-            type="text"
-            icon={<EyeOutlined style={{ color: "#8b0000" }} />}
-            onClick={() => handleOpenDetail(record)}
-          />
-        </Tooltip>
+        <Space size={0}>
+          <Tooltip title="Подробнее">
+            <Button
+              type="text"
+              icon={<EyeOutlined style={{ color: RED }} />}
+              onClick={() => handleOpenDetail(record)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];
+
+  const requiredRule = (text) => [{ required: true, message: text }];
+
+  const moneyInputProps = {
+    min: 0,
+    style: { width: "100%", borderRadius: 10 },
+    formatter: (v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, " "),
+    parser: (v) => (v ? v.replace(/\s/g, "") : ""),
+    placeholder: "Введите сумму",
+  };
+
+  const renderEditFields = () => {
+    const isPO = editDoc?.entity_type === "payment_order";
+
+    return (
+      <>
+        {isPO ? (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="Дата валютирования"
+                  name="value_date"
+                  rules={requiredRule("Пожалуйста, укажите дату валютирования")}
+                >
+                  <DatePicker
+                    style={{ width: "100%", borderRadius: 10 }}
+                    format="DD.MM.YYYY"
+                    placeholder="Выберите дату"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="Сумма платежа"
+                  name="amount"
+                  rules={requiredRule("Пожалуйста, укажите сумму")}
+                >
+                  <InputNumber {...moneyInputProps} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Валюта платежа"
+                  name="currency"
+                  rules={requiredRule("Пожалуйста, выберите валюту")}
+                >
+                  <Select
+                    style={{ border: "1px solid #8b0000" }}
+                    showSearch
+                    placeholder="Выберите валюту"
+                    options={currencies}
+                    optionFilterProp="label"
+                    loading={loadingCurrencies}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="Отправитель"
+                  name="sender_name"
+                  rules={requiredRule("Укажите отправителя")}
+                >
+                  <Input
+                    style={{ borderRadius: 10 }}
+                    placeholder="Введите отправителя"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Получатель"
+                  name="receiver_name"
+                  rules={requiredRule("Укажите получателя")}
+                >
+                  <Input
+                    style={{ borderRadius: 10 }}
+                    placeholder="Введите получателя"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="Банк получателя"
+                  name="receiver_bank"
+                  rules={requiredRule("Укажите банк получателя")}
+                >
+                  <Input
+                    style={{ borderRadius: 10 }}
+                    placeholder="Введите название банка"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Страна получателя"
+                  name="receiver_country"
+                  rules={requiredRule("Укажите страну получателя")}
+                >
+                  <Select
+                    showSearch
+                    placeholder="Выберите или введите страну"
+                    style={{
+                      width: "100%",
+                      borderRadius: 10,
+                      border: "1px solid #8b0000",
+                    }}
+                    loading={loadingCountries}
+                    optionFilterProp="label"
+                    options={countries}
+                    allowClear
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item
+              label="Назначение платежа"
+              name="payment_purpose"
+              rules={requiredRule("Укажите назначение платежа")}
+            >
+              <TextArea
+                rows={2}
+                style={{ borderRadius: 10 }}
+                placeholder="Введите назначение платежа"
+              />
+            </Form.Item>
+          </>
+        ) : (
+          <>
+            <Row gutter={16}>
+              <Col span={24}>
+                <Form.Item
+                  label="Номер ГТД"
+                  name="gtd_number"
+                  rules={requiredRule("Укажите номер ГТД")}
+                >
+                  <Input
+                    style={{ borderRadius: 10 }}
+                    placeholder="Введите номер ГТД"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="Дата ГТД"
+                  name="gtd_date"
+                  rules={requiredRule("Пожалуйста, укажите дату ГТД")}
+                >
+                  <DatePicker
+                    style={{ width: "100%", borderRadius: 10 }}
+                    format="DD.MM.YYYY"
+                    placeholder="Выберите дату"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Сумма ГТД"
+                  name="gtd_amount"
+                  rules={requiredRule("Пожалуйста, укажите сумму")}
+                >
+                  <InputNumber {...moneyInputProps} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </>
+        )}
+      </>
+    );
+  };
 
   return (
     <div>
@@ -423,7 +969,7 @@ const MyDocuments = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "#8b0000",
+              background: RED,
               boxShadow: "0 10px 24px rgba(217,70,239,0.28)",
               flexShrink: 0,
             }}
@@ -431,10 +977,7 @@ const MyDocuments = () => {
             <FileDoneOutlined style={{ fontSize: 16, color: "#fff" }} />
           </div>
           <div>
-            <Title
-              level={3}
-              style={{ margin: 0, fontWeight: 700, color: "#8b0000" }}
-            >
+            <Title level={3} style={{ margin: 0, fontWeight: 700, color: RED }}>
               Мои документы
             </Title>
             <Text type="secondary" style={{ fontSize: 13 }}>
@@ -450,8 +993,8 @@ const MyDocuments = () => {
             onClick={() => fetchMyDocuments()}
             style={{
               borderRadius: 12,
-              background: "#8b0000",
-              border: '1px solid #8b0000',
+              background: RED,
+              border: `1px solid ${RED}`,
               height: 35,
               color: "#fff",
             }}
@@ -469,6 +1012,7 @@ const MyDocuments = () => {
           </Button>
         </Space>
       </div>
+
       <Card
         style={{
           marginBottom: 20,
@@ -479,8 +1023,8 @@ const MyDocuments = () => {
         bodyStyle={{ padding: 20 }}
       >
         <Space align="center" size={10} style={{ marginBottom: 16 }}>
-          <FilterOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-          <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
+          <FilterOutlined style={{ color: RED, fontSize: 16 }} />
+          <Text strong style={{ fontSize: 15, color: RED }}>
             Фильтры
           </Text>
         </Space>
@@ -488,12 +1032,7 @@ const MyDocuments = () => {
         <Row gutter={[16, 16]} align="bottom">
           <Col xs={24} md={6} lg={5}>
             <Text
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontSize: 14,
-                color: "#8b0000",
-              }}
+              style={{ display: "block", marginBottom: 8, fontSize: 14, color: RED }}
             >
               Область
             </Text>
@@ -505,18 +1044,13 @@ const MyDocuments = () => {
                 fetchMyDocuments({ ...filters, scope: v, page: 1 });
               }}
               options={SCOPE_OPTIONS}
-              style={{ width: "100%", height: 35, border: "1px solid #8b0000" }}
+              style={{ width: "100%", height: 35, border: `1px solid ${RED}` }}
             />
           </Col>
 
           <Col xs={24} md={6} lg={5}>
             <Text
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontSize: 14,
-                color: "#8b0000",
-              }}
+              style={{ display: "block", marginBottom: 8, fontSize: 14, color: RED }}
             >
               Статус
             </Text>
@@ -528,18 +1062,13 @@ const MyDocuments = () => {
                 fetchMyDocuments({ ...filters, status: v, page: 1 });
               }}
               options={STATUS_OPTIONS}
-              style={{ width: "100%", height: 35, border: "1px solid #8b0000" }}
+              style={{ width: "100%", height: 35, border: `1px solid ${RED}` }}
             />
           </Col>
 
           <Col xs={24} md={6} lg={5}>
             <Text
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontSize: 14,
-                color: "#8b0000",
-              }}
+              style={{ display: "block", marginBottom: 8, fontSize: 14, color: RED }}
             >
               Тип документа
             </Text>
@@ -551,7 +1080,7 @@ const MyDocuments = () => {
                 fetchMyDocuments({ ...filters, entity_type: v, page: 1 });
               }}
               options={ENTITY_TYPES}
-              style={{ width: "100%", height: 35, border: "1px solid #8b0000" }}
+              style={{ width: "100%", height: 35, border: `1px solid ${RED}` }}
             />
           </Col>
 
@@ -568,7 +1097,7 @@ const MyDocuments = () => {
                   minWidth: 0,
                   borderRadius: 10,
                   height: 35,
-                  background: "#8b0000",
+                  background: RED,
                   border: "none",
                   boxShadow: "0 6px 16px rgba(217,70,239,0.28)",
                   fontWeight: 600,
@@ -579,12 +1108,7 @@ const MyDocuments = () => {
               <Button
                 danger
                 onClick={handleReset}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  borderRadius: 10,
-                  height: 35,
-                }}
+                style={{ flex: 1, minWidth: 0, borderRadius: 10, height: 35 }}
               >
                 Сбросить
               </Button>
@@ -614,15 +1138,15 @@ const MyDocuments = () => {
           }}
         >
           <Space size={10}>
-            <FileTextOutlined style={{ color: "#8b0000", fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15, color: "#8b0000" }}>
+            <FileTextOutlined style={{ color: RED, fontSize: 16 }} />
+            <Text strong style={{ fontSize: 15, color: RED }}>
               Мои документы
             </Text>
           </Space>
           <Tag
             color="red"
             style={{
-              color: "#8b0000",
+              color: RED,
               borderRadius: 8,
               padding: "2px 12px",
               fontWeight: 600,
@@ -643,7 +1167,7 @@ const MyDocuments = () => {
                 alignItems: "center",
               }}
             >
-              <Spin size="small" style={{color: '#f00'}} />
+              <Spin size="small" style={{ color: "#f00" }} />
             </div>
           ) : (
             <Table
@@ -654,7 +1178,7 @@ const MyDocuments = () => {
               loading={loading}
               columns={columns}
               dataSource={safeItems}
-              scroll={{ x: 1600 }}
+              scroll={{ x: 1400 }}
               pagination={{
                 current: page,
                 pageSize: pageSize,
@@ -679,23 +1203,16 @@ const MyDocuments = () => {
           )}
         </div>
       </Card>
+
       <Modal
         title={
           <Space size={10}>
-            <FileTextOutlined style={{ color: "#8b0000", fontSize: 18 }} />
-            <span style={{ fontWeight: 700, color: "#8b0000" }}>
-              Детали документа
-            </span>
+            <FileTextOutlined style={{ color: RED, fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: RED }}>Детали документа</span>
             {detailDoc?.approval_status && (
               <Tag
-                color={
-                  STATUS_MAP[detailDoc.approval_status]?.color || "default"
-                }
-                style={{
-                  borderRadius: 999,
-                  fontWeight: 600,
-                  margin: 0,
-                }}
+                color={STATUS_MAP[detailDoc.approval_status]?.color || "default"}
+                style={{ borderRadius: 999, fontWeight: 600, margin: 0 }}
               >
                 {STATUS_MAP[detailDoc.approval_status]?.label ||
                   detailDoc.approval_status}
@@ -706,6 +1223,26 @@ const MyDocuments = () => {
         open={isDetailOpen}
         onCancel={handleCloseDetail}
         footer={[
+          isRevision(detailDoc) &&
+            ["gtd", "payment_order"].includes(detailDoc?.entity_type) && (
+              <Button
+                key="edit"
+                type="primary"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  const doc = detailDoc;
+                  handleCloseDetail();
+                  handleOpenEdit(doc);
+                }}
+                style={{
+                  borderRadius: 10,
+                  background: "#d4380d",
+                  borderColor: "#d4380d",
+                }}
+              >
+                Исправить и отправить
+              </Button>
+            ),
           <Button
             key="close"
             danger
@@ -725,13 +1262,13 @@ const MyDocuments = () => {
           <Empty description="Нет данных" />
         ) : (
           <>
+            {isRevision(detailDoc) && renderRevisionAlert(detailDoc)}
+
             <Descriptions
               title={
                 <Space size={8}>
                   <Tag
-                    color={
-                      ENTITY_TYPE_COLORS[detailDoc.entity_type] || "default"
-                    }
+                    color={ENTITY_TYPE_COLORS[detailDoc.entity_type] || "default"}
                     style={{ borderRadius: 8, fontWeight: 600 }}
                   >
                     {ENTITY_TYPE_LABELS[detailDoc.entity_type] ||
@@ -818,9 +1355,7 @@ const MyDocuments = () => {
               <Space size={10} align="center">
                 <Avatar
                   size={36}
-                  style={{
-                    background: "linear-gradient(135deg, #ff4b4b, #d946ef)",
-                  }}
+                  style={{ background: "linear-gradient(135deg, #ff4b4b, #d946ef)" }}
                 >
                   {String(
                     detailDoc.creator?.login ||
@@ -845,6 +1380,7 @@ const MyDocuments = () => {
                 </Space>
               </Space>
             </Card>
+
             {(detailDoc.compliance_decision ||
               detailDoc.compliance_comment ||
               detailDoc.compliance_reviewer) && (
@@ -862,26 +1398,26 @@ const MyDocuments = () => {
                           : "#fafafa",
                   }}
                 >
-                  <Space
-                    direction="vertical"
-                    size={6}
-                    style={{ width: "100%" }}
-                  >
+                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
                     <Space size={6}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         Решение:
                       </Text>
                       <Tag
                         color={
-                          detailDoc.compliance_decision === "approved"
+                          detailDoc.compliance_decision === "approved" ||
+                          detailDoc.compliance_decision === "accepted"
                             ? "green"
-                            : detailDoc.compliance_decision === "rejected"
+                            : detailDoc.compliance_decision === "rejected" ||
+                                detailDoc.compliance_decision === "reject"
                               ? "red"
                               : "gold"
                         }
                         style={{ borderRadius: 6, margin: 0 }}
                       >
-                        {detailDoc.compliance_decision || "—"}
+                        {DECISION_MAP[detailDoc.compliance_decision]?.label ||
+                          detailDoc.compliance_decision ||
+                          "—"}
                       </Tag>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {formatDateTime(detailDoc.compliance_reviewed_at)}
@@ -905,13 +1441,12 @@ const MyDocuments = () => {
                 </Card>
               </>
             )}
+
             {(detailDoc.currency_control_decision ||
               detailDoc.currency_control_comment ||
               detailDoc.currency_control_reviewer) && (
               <>
-                <Divider style={{ margin: "16px 0" }}>
-                  Валютный контроль
-                </Divider>
+                <Divider style={{ margin: "16px 0" }}>Валютный контроль</Divider>
                 <Card
                   size="small"
                   style={{
@@ -924,26 +1459,27 @@ const MyDocuments = () => {
                           : "#fafafa",
                   }}
                 >
-                  <Space
-                    direction="vertical"
-                    size={6}
-                    style={{ width: "100%" }}
-                  >
+                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
                     <Space size={6}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         Решение:
                       </Text>
                       <Tag
                         color={
-                          detailDoc.currency_control_decision === "approved"
+                          detailDoc.currency_control_decision === "approved" ||
+                          detailDoc.currency_control_decision === "accepted"
                             ? "green"
-                            : detailDoc.currency_control_decision === "rejected"
+                            : detailDoc.currency_control_decision === "rejected" ||
+                                detailDoc.currency_control_decision === "reject"
                               ? "red"
                               : "gold"
                         }
                         style={{ borderRadius: 6, margin: 0 }}
                       >
-                        {detailDoc.currency_control_decision || "—"}
+                        {DECISION_MAP[detailDoc.currency_control_decision]
+                          ?.label ||
+                          detailDoc.currency_control_decision ||
+                          "—"}
                       </Tag>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {formatDateTime(detailDoc.currency_control_reviewed_at)}
@@ -968,6 +1504,77 @@ const MyDocuments = () => {
               </>
             )}
           </>
+        )}
+      </Modal>
+
+      <Modal
+        title={
+          <Space size={10}>
+            <EditOutlined style={{ color: "#d4380d", fontSize: 18 }} />
+            <span style={{ fontWeight: 700, color: RED }}>
+              {editDoc?.entity_type === "payment_order"
+                ? "Исправить платёжное поручение"
+                : "Исправить ГТД"}
+            </span>
+            {editDoc?.document_number && (
+              <Tag
+                style={{
+                  borderRadius: 8,
+                  background: RED,
+                  color: "#fff",
+                  border: "none",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                }}
+              >
+                {editDoc.document_number}
+              </Tag>
+            )}
+          </Space>
+        }
+        open={isEditOpen}
+        onCancel={closeEditModal}
+        mask={{ closable: false }}
+        footer={[
+          <Button
+            key="send"
+            type="primary"
+            icon={<SendOutlined />}
+            loading={editSubmitting}
+            onClick={handleEditSubmit}
+            style={{ borderRadius: 10, background: RED, borderColor: RED }}
+          >
+            Отправить в валютный контроль
+          </Button>,
+          <Button
+            key="cancel"
+            danger
+            disabled={editSubmitting}
+            onClick={closeEditModal}
+            style={{ borderRadius: 10 }}
+          >
+            Отмена
+          </Button>,
+        ]}
+        width={760}
+        style={{ top: 40 }}
+        destroyOnHidden
+      >
+        {editDoc && (
+          <div style={{ maxHeight: "70vh", paddingRight: 4 }}>
+            {isRevision(editDoc) && renderRevisionAlert(editDoc)}
+
+            <Form
+              key={`${editDoc.entity_type}-${editDoc.entity_id}`}
+              form={editForm}
+              layout="vertical"
+              autoComplete="off"
+              preserve={false}
+              initialValues={buildEditValues(editDoc)}
+            >
+              {renderEditFields()}
+            </Form>
+          </div>
         )}
       </Modal>
     </div>
