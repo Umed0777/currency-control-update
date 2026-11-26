@@ -269,7 +269,7 @@ const BranchDashboard = () => {
 
   useEffect(() => {
     if (error) {
-      message.error(error);
+      // message.error(error);
       clearError();
     }
   }, [error, clearError]);

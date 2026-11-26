@@ -1585,7 +1585,7 @@ const InvoiceDetails = ({ contractId, invoiceId }) => {
     {
       title: "Действия",
       key: "actions",
-      width: 120,
+      width: 300,
       align: "center",
       render: (_, r) => (
         <RowActions

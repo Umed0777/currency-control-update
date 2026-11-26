@@ -50,8 +50,6 @@ import {
   SafetyCertificateOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  FileProtectOutlined,
-  FileAddOutlined,
 } from "@ant-design/icons";
 
 import debounce from "lodash/debounce";
@@ -69,23 +67,14 @@ const PURPLE = "#722ed1"; // Комплаенс
 const BLUE = "#1677ff"; // Валютный контроль
 
 // ============================================================
-// ТИПЫ ДОКУМЕНТОВ (теперь включая контракты и доп. соглашения)
+// ТИПЫ ДОКУМЕНТОВ (только ГТД и платёжные поручения)
 // ============================================================
 const ENTITY_TYPE_MAP = {
-  contract: { label: "Контракт", color: "red" },
-  invoice: { label: "Инвойс", color: "blue" },
   gtd: { label: "ГТД", color: "green" },
-  additional_agreement: { label: "Доп. соглашение", color: "purple" },
   payment_order: { label: "Платёжное поручение", color: "cyan" },
 };
 
-// Разрешаем показывать контракты и доп. соглашения
-const ALLOWED_ENTITY_TYPES = [
-  "gtd",
-  "payment_order",
-  "contract",
-  "additional_agreement",
-];
+const ALLOWED_ENTITY_TYPES = ["gtd", "payment_order"];
 
 // Варианты фильтра «Тип документа»
 const ENTITY_TYPE_FILTER_OPTIONS = [
@@ -934,115 +923,7 @@ const ApprovalsPage = () => {
     approvalColumn("Согласование ГТД"),
   ];
 
-  // ----- Контракты -----
-  const contractColumns = [
-    actionCol,
-    {
-      title: "Номер контракта",
-      dataIndex: "document_number",
-      key: "document_number",
-      width: 180,
-      render: (v) => (
-        <Text strong style={{ fontSize: 13 }}>
-          {v || "—"}
-        </Text>
-      ),
-    },
-    {
-      title: "Дата",
-      dataIndex: "document_date",
-      key: "document_date",
-      width: 150,
-      render: (v) => dateCell(v),
-    },
-    {
-      title: "Предмет",
-      dataIndex: "subject",
-      key: "subject",
-      width: 200,
-      render: (v) => textCell(v, FileTextOutlined),
-    },
-    {
-      title: "Сумма",
-      dataIndex: "amount",
-      key: "amount",
-      width: 150,
-      render: (v, r) => amountCell(v, r.currency),
-    },
-    {
-      title: "Документ",
-      dataIndex: "document_path",
-      key: "document_path",
-      width: 220,
-      render: (v, r) =>
-        v ? (
-          <DocumentLink
-            entityType="contract"
-            entityId={r.entity_id}
-            filePath={v}
-          />
-        ) : (
-          dash
-        ),
-    },
-    approvalColumn("Согласование Контракта"),
-  ];
-
-  // ----- Доп. соглашения -----
-  const agreementColumns = [
-    actionCol,
-    {
-      title: "Номер",
-      dataIndex: "document_number",
-      key: "document_number",
-      width: 180,
-      render: (v) => (
-        <Text strong style={{ fontSize: 13 }}>
-          {v || "—"}
-        </Text>
-      ),
-    },
-    {
-      title: "Дата",
-      dataIndex: "document_date",
-      key: "document_date",
-      width: 150,
-      render: (v) => dateCell(v),
-    },
-    {
-      title: "Предмет",
-      dataIndex: "subject",
-      key: "subject",
-      width: 200,
-      render: (v) => textCell(v, FileTextOutlined),
-    },
-    {
-      title: "Сумма",
-      dataIndex: "amount",
-      key: "amount",
-      width: 150,
-      render: (v, r) => amountCell(v, r.currency),
-    },
-    {
-      title: "Документ",
-      dataIndex: "document_path",
-      key: "document_path",
-      width: 220,
-      render: (v, r) =>
-        v ? (
-          <DocumentLink
-            entityType="additional_agreement"
-            entityId={r.entity_id}
-            filePath={v}
-          />
-        ) : (
-          dash
-        ),
-    },
-    approvalColumn("Согласование Доп. соглашения"),
-  ];
-
-  // ----- Принятые документы (все типы) -----
+  // ----- Принятые документы (ГТД + ПП) -----
   const acceptedColumns = [
     actionCol,
     {
@@ -1086,20 +967,6 @@ const ApprovalsPage = () => {
 
   // Описание всех секций (порядок = порядок на странице)
   const SECTIONS = [
-    {
-      type: "contract",
-      title: "Контракты",
-      icon: FileProtectOutlined,
-      columns: contractColumns,
-      emptyText: "Нет контрактов на согласовании",
-    },
-    {
-      type: "additional_agreement",
-      title: "Доп. соглашения",
-      icon: FileAddOutlined,
-      columns: agreementColumns,
-      emptyText: "Нет доп. соглашений на согласовании",
-    },
     {
       type: "payment_order",
       title: "Платёжные поручения",

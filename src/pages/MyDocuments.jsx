@@ -99,7 +99,7 @@ const STATUS_MAP = {
   pending_currency_control: {
     label: "На валютном контроле",
     color: "orange",
-    icon: <SyncOutlined spin  />,
+    icon: <SyncOutlined spin />,
   },
   pending_compliance: {
     label: "На комплаенсе",
@@ -244,52 +244,135 @@ const toArray = (value) => {
 const pick = (...vals) =>
   vals.find((v) => v !== undefined && v !== null && v !== "");
 
+// Мягкая нормализация: убираем кавычки, знаки и орг. формы (ЧДММ, ООО, ТЧ ...)
 const normName = (v) =>
   String(v ?? "")
     .toLowerCase()
+    .replace(/[«»"'`.,()\-–—]/g, " ")
+    .replace(/(^|\s)(чдмм|ооо|оао|зао|ип|тч|llc)(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
+// ===== Определение компании документа =====
+
+// Кэш: branchId:contractId -> companyId (чтобы не перебирать компании повторно)
+const companyCache = new Map();
+
+const getCompanyIdOf = (c) => c?.id ?? c?.company_id ?? c?.companyId ?? null;
+
+const contractMatches = (k, contractId) =>
+  [k?.id, k?.contract_id, k?.contractId].some(
+    (v) => v !== undefined && v !== null && String(v) === String(contractId),
+  );
+
+const loadBranchCompanies = async (branchId, query = "") => {
+  try {
+    const res = await useBranchDashboardStore
+      .getState()
+      .fetchDashboard(branchId, { query, search_type: "name" });
+    const fromResponse = toArray(res);
+    if (fromResponse.length) return fromResponse;
+  } catch (e) {
+    console.warn("Не удалось загрузить компании филиала:", e);
+  }
+  return toArray(useBranchDashboardStore.getState().companies);
+};
+
+const loadCompanyContracts = async (branchId, companyId) => {
+  try {
+    const res = await useContractStore
+      .getState()
+      .fetchContracts(branchId, companyId);
+    const fromResponse = toArray(res);
+    if (fromResponse.length) return { ok: true, list: fromResponse };
+    return {
+      ok: true,
+      list: toArray(useContractStore.getState().contracts),
+    };
+  } catch (e) {
+    console.warn("Не удалось проверить контракты компании:", companyId, e);
+    return { ok: false, list: [] };
+  }
+};
+
 const resolveCompanyId = async (record, branchId, contractId) => {
+  // 1) Если бэкенд уже вернул company_id — используем его
   const direct = pick(
     record.company_id,
+    record.companyId,
     record.company?.id,
+    record.contract?.company_id,
+    record.contract?.company?.id,
     record.counterparty_id,
   );
   if (direct) return direct;
 
-  const name = normName(record.counterparty_name);
-  if (!branchId || !name) return null;
+  // 2) Кэш
+  const cacheKey = `${branchId}:${contractId}`;
+  if (companyCache.has(cacheKey)) return companyCache.get(cacheKey);
 
-  try {
-    await useBranchDashboardStore
-      .getState()
-      .fetchDashboard(branchId, { query: "", search_type: "name" });
-  } catch (e) {
-    console.warn("Не удалось загрузить компании филиала:", e);
+  if (!branchId) return null;
+
+  const name = normName(record.counterparty_name);
+
+  // 3) Загружаем ВСЕ компании филиала
+  let allCompanies = await loadBranchCompanies(branchId, "");
+
+  // Если пусто — пробуем поиск по названию
+  if (allCompanies.length === 0 && record.counterparty_name) {
+    allCompanies = await loadBranchCompanies(branchId, record.counterparty_name);
   }
 
-  const list = toArray(useBranchDashboardStore.getState().companies);
-  const candidates = list.filter((c) =>
-    [c.llc, c.name, c.company_name].some((v) => normName(v) === name),
+  if (allCompanies.length === 0) {
+    console.warn("resolveCompanyId: список компаний филиала пуст", { branchId });
+    return null;
+  }
+
+  // 4) Кандидаты по названию — проверяем первыми
+  const byName = allCompanies.filter((c) =>
+    [c.llc, c.name, c.company_name].some((v) => {
+      const n = normName(v);
+      return n && name && (n === name || n.includes(name) || name.includes(n));
+    }),
   );
 
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0].id ?? candidates[0].company_id;
+  const rest = allCompanies.filter((c) => !byName.includes(c));
+  const ordered = [...byName, ...rest];
 
-  for (const c of candidates) {
-    const cid = c.id ?? c.company_id;
+  // 5) Ищем компанию, у которой есть нужный контракт
+  let anyContractsLoaded = false;
+  for (const c of ordered) {
+    const cid = getCompanyIdOf(c);
     if (!cid) continue;
-    try {
-      await useContractStore.getState().fetchContracts(branchId, cid);
-      const contracts = toArray(useContractStore.getState().contracts);
-      if (contracts.some((k) => String(k.id) === String(contractId))) {
-        return cid;
-      }
-    } catch (e) {
-      console.warn("Не удалось проверить контракты компании:", e);
+
+    const { ok, list } = await loadCompanyContracts(branchId, cid);
+    if (ok) anyContractsLoaded = true;
+
+    if (list.some((k) => contractMatches(k, contractId))) {
+      companyCache.set(cacheKey, cid);
+      return cid;
     }
   }
+
+  // 6) Запасные варианты, если контракты проверить не удалось
+  if (!anyContractsLoaded && byName.length >= 1) {
+    const cid = getCompanyIdOf(byName[0]);
+    if (cid) return cid;
+  }
+  if (byName.length === 1) {
+    const cid = getCompanyIdOf(byName[0]);
+    if (cid) return cid;
+  }
+  if (allCompanies.length === 1) {
+    const cid = getCompanyIdOf(allCompanies[0]);
+    if (cid) return cid;
+  }
+
+  console.warn("resolveCompanyId: компания не найдена", {
+    contractId,
+    counterparty: record.counterparty_name,
+    companies: allCompanies.length,
+  });
   return null;
 };
 
@@ -501,7 +584,10 @@ const MyDocuments = () => {
       const companyId = await resolveCompanyId(editDoc, branchId, contractId);
 
       if (!companyId) {
-        message.error("Не удалось определить компанию документа.");
+        console.error("Компания не определена", { editDoc, branchId, contractId });
+        message.error(
+          "Не удалось определить компанию документа. Откройте контракт из карточки компании и повторите, либо обратитесь к администратору.",
+        );
         return;
       }
 
@@ -531,7 +617,7 @@ const MyDocuments = () => {
             receiver_country: values.receiver_country,
             payment_purpose: values.payment_purpose,
             document: file,
-            // 👇 Отправляем статус для валютного контроля
+            // Отправляем статус для валютного контроля
             approval_status: "pending_currency_control",
             comment: comment,
           },
@@ -546,7 +632,7 @@ const MyDocuments = () => {
           document_type: "gtd",
           invoice_id: invoiceId || null,
           document: file,
-          // 👇 Отправляем статус для валютного контроля
+          // Отправляем статус для валютного контроля
           approval_status: "pending_currency_control",
           comment: comment,
         });
